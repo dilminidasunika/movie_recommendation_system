@@ -4,9 +4,9 @@ services:
     container_name: movies_database
     restart: unless-stopped
     environment:
-      POSTGRES_USER: nd2002
-      POSTGRES_PASSWORD: As123@we
-      POSTGRES_DB: moviedb
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "15432:5432"
     volumes:
