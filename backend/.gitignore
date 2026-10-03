@@ -2,3 +2,7 @@
 .env
 __pycache__/
 *.py[cod]
+/artifacts/*
+!/artifacts/*.dvc
+!/artifacts/.gitignore
+/chroma_data
