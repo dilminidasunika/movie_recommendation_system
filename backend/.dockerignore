@@ -1,0 +1,7 @@
+chroma_data/
+artifacts/
+scripts/
+tests/
+__pycache__/
+.venv/
+.env

@@ -11,7 +11,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    database_url: str = Field(validation_alias="POSTGRESQL_URL")
+    database_url: str = Field(validation_alias="DATABASE_URL")
     artifacts_dir: str = "artifacts"
     artifact_version: str = "v1"
     chroma_dir: str = "chroma_data"

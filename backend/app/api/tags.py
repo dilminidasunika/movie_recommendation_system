@@ -11,14 +11,13 @@ VALID_TYPES = {
     "writer", "producer", "composer", "keyword",
     "company", "country", "spoken_language",
 }
-# Small enumerations: fetched once and filtered client-side, no type-ahead needed.
 STATIC_TYPES = {"genre", "original_language", "spoken_language", "country"}
 
 
-class TagOut(BaseModel):  # move to schemas.py if you prefer
+class TagOut(BaseModel):
     tag_type: str
     name: str
-    movie_count: int  # display only, never used for ranking
+    movie_count: int  # display only
 
 
 def _parse_types(types: str) -> list[str]:
@@ -36,42 +35,46 @@ def _escape_like(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-# Note: psycopg needs a literal % doubled, hence %% for the trigram operator.
-SEARCH_SQL = """
-WITH m AS (
-    SELECT tag_type, name, movie_count,
-           (lower(name) LIKE lower(%(prefix)s)) AS is_prefix,
-           similarity(lower(name), lower(%(q)s)) AS sim
+SEARCH_SQL_FAST = """
+SELECT t.tag_type, t.name, t.movie_count
+FROM unnest(%(types)s::text[]) AS ty(tag_type)
+CROSS JOIN LATERAL (
+    SELECT tag_type, name, movie_count
     FROM tag_lookup
-    WHERE tag_type = ANY(%(types)s::text[])
-      AND (lower(name) LIKE lower(%(contains)s) OR lower(name) %% lower(%(q)s))
-), ranked AS (
-    SELECT tag_type, name, movie_count,
-           ROW_NUMBER() OVER (
-               PARTITION BY tag_type
-               ORDER BY is_prefix DESC, sim DESC, name
-           ) AS rn
-    FROM m
-)
-SELECT tag_type, name, movie_count
-FROM ranked
-WHERE rn <= %(per_type)s
-ORDER BY tag_type, rn
+    WHERE tag_type = ty.tag_type
+      AND lower(name) LIKE %(contains)s
+    ORDER BY (lower(name) LIKE %(prefix)s) DESC, length(name), name
+    LIMIT %(per_type)s
+) t
+"""
+
+SEARCH_SQL_FUZZY = """
+SELECT t.tag_type, t.name, t.movie_count
+FROM unnest(%(types)s::text[]) AS ty(tag_type)
+CROSS JOIN LATERAL (
+    SELECT tag_type, name, movie_count
+    FROM tag_lookup
+    WHERE tag_type = ty.tag_type
+      AND (lower(name) LIKE %(contains)s OR lower(name) %% %(q)s::text)
+    ORDER BY (lower(name) LIKE %(prefix)s) DESC,
+             similarity(lower(name), %(q)s::text) DESC,
+             name
+    LIMIT %(per_type)s
+) t
 """
 
 
 @router.get("/search", response_model=list[TagOut])
 def search_tags(
     q: str = Query(..., max_length=100),
-    types: str = Query(..., description="comma-separated, e.g. 'cast' or 'writer,producer,keyword'"),
+    types: str = Query(..., description="comma-separated tag types"),
     per_type: int = Query(4, ge=1, le=20),
     pool: ConnectionPool = Depends(get_pool),
 ):
     type_list = _parse_types(types)
-    q = q.strip()
-    if len(q) < 3:  # trigram index is ineffective below 3 chars
+    q = q.strip().lower()
+    if len(q) < 3:
         return []
-
     safe = _escape_like(q)
     params = {
         "q": q,
@@ -80,8 +83,9 @@ def search_tags(
         "types": type_list,
         "per_type": per_type,
     }
+    sql = SEARCH_SQL_FUZZY if len(q) >= 5 else SEARCH_SQL_FAST
     with pool.connection() as conn:
-        return conn.execute(SEARCH_SQL, params).fetchall()
+        return conn.execute(sql, params).fetchall()
 
 
 _static_cache: dict[str, list[dict]] = {}

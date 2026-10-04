@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from psycopg_pool import ConnectionPool
 
 from app.api import tags  # , movies, recommend
+from app.api import movies
 from app.config import settings
 from app.db.pool import get_pool, open_pool
 
@@ -33,7 +34,7 @@ app.add_middleware(
 )
 
 app.include_router(tags.router, prefix="/api")
-# app.include_router(movies.router, prefix="/api")
+app.include_router(movies.router, prefix="/api")
 # app.include_router(recommend.router, prefix="/api")
 
 

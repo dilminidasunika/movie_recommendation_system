@@ -11,6 +11,29 @@ services:
       - "15432:5432"
     volumes:
       - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: movies_backend
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@movies_database:5432/${POSTGRES_DB}
+      ARTIFACTS_DIR: /artifacts/v1
+      CHROMA_DIR: /chroma_data
+      # add LLM key here, e.g. OPENAI_API_KEY: ${OPENAI_API_KEY}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/artifacts:/artifacts:ro
+      - ./backend/chroma_data:/chroma_data
 
 volumes:
   pgdata:
