@@ -11,7 +11,7 @@ VALID_TYPES = {
     "writer", "producer", "composer", "keyword",
     "company", "country", "spoken_language",
 }
-STATIC_TYPES = {"genre", "original_language", "spoken_language", "country"}
+STATIC_TYPES = {"genre", "original_language"}
 
 
 class TagOut(BaseModel):
