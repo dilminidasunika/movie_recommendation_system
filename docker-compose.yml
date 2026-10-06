@@ -28,7 +28,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@movies_database:5432/${POSTGRES_DB}
       ARTIFACTS_DIR: /artifacts/v1
       CHROMA_DIR: /chroma_data
-      # add LLM key here, e.g. OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
     ports:
       - "8000:8000"
     volumes:

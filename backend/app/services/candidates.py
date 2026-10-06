@@ -37,37 +37,40 @@ def _ann(q, where: dict | None) -> list[list[int]]:
                                       settings.ann_k, where))
     return lists
 
-
 def generate(req, q) -> list[int]:
-    """Gate, then small branch (exact) or large branch (filtered ANN + post-filter)."""
-    f = Filters.from_request(req)
     exclude = set(q.movie_ids)
+    return _interleave(_ann(q, None), settings.pool_cap, exclude)
 
-    # No filters: skip the gate entirely (step 26)
-    if not f.active:
-        pool = _interleave(_ann(q, None), settings.pool_cap, exclude)
-        log.debug("branch=no_filters pool=%d", len(pool))
-        return pool
+# def generate(req, q) -> list[int]:
+#     """Gate, then small branch (exact) or large branch (filtered ANN + post-filter)."""
+#     f = Filters.from_request(req)
+#     exclude = set(q.movie_ids)
 
-    # Gate (step 27)
-    gate = queries.gate_ids(f, settings.exact_limit + 1)
+#     # No filters: skip the gate entirely (step 26)
+#     if not f.active:
+#         pool = _interleave(_ann(q, None), settings.pool_cap, exclude)
+#         log.debug("branch=no_filters pool=%d", len(pool))
+#         return pool
 
-    # Small branch: whole filtered set is the pool, no ANN (step 28)
-    if len(gate) <= settings.exact_limit:
-        pool = [i for i in gate if i not in exclude]
-        log.debug("branch=small gate=%d pool=%d", len(gate), len(pool))
-        return pool
+#     # Gate (step 27)
+#     gate = queries.gate_ids(f, settings.exact_limit + 1)
 
-    # Large branch: filtered ANN, post-filter, then cap (step 29)
-    where = chroma.build_where(
-        list(f.languages),
-        f.date_from.year if f.date_from else None,
-        f.date_to.year if f.date_to else None,
-    )
-    lists = _ann(q, where)
-    union = list(dict.fromkeys(i for lst in lists for i in lst))
-    keep = queries.filter_ids(union, f)                   # BEFORE the cap
-    lists = [[i for i in lst if i in keep] for lst in lists]
-    pool = _interleave(lists, settings.pool_cap, exclude)
-    log.debug("branch=large ann_union=%d kept=%d pool=%d", len(union), len(keep), len(pool))
-    return pool
+#     # Small branch: whole filtered set is the pool, no ANN (step 28)
+#     if len(gate) <= settings.exact_limit:
+#         pool = [i for i in gate if i not in exclude]
+#         log.debug("branch=small gate=%d pool=%d", len(gate), len(pool))
+#         return pool
+
+#     # Large branch: filtered ANN, post-filter, then cap (step 29)
+#     where = chroma.build_where(
+#         list(f.languages),
+#         f.date_from.year if f.date_from else None,
+#         f.date_to.year if f.date_to else None,
+#     )
+#     lists = _ann(q, where)
+#     union = list(dict.fromkeys(i for lst in lists for i in lst))
+#     keep = queries.filter_ids(union, f)                   # BEFORE the cap
+#     lists = [[i for i in lst if i in keep] for lst in lists]
+#     pool = _interleave(lists, settings.pool_cap, exclude)
+#     log.debug("branch=large ann_union=%d kept=%d pool=%d", len(union), len(keep), len(pool))
+#     return pool

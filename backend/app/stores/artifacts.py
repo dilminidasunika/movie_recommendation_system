@@ -12,9 +12,9 @@ from app.config import settings
 log = logging.getLogger(__name__)
 
 TAG_MATRIX = "tag_matrix.npz"        # CSR, rows aligned with matrix_ids.npy
-MATRIX_IDS = "matrix_ids.npy"        # int64 movie ids, one per row
+MATRIX_IDS = "tag_matrix_movie_ids.npy"        # int64 movie ids, one per row
 VECTORIZERS = "vectorizers.joblib"   # list of 3 fitted CountVectorizers, same order as column blocks
-SVD = "svd.joblib"                   # fitted TruncatedSVD
+SVD = "tag_svd_model.joblib"                   # fitted TruncatedSVD
 PLOT_EMB = "plot_embeddings.npy"     # optional runtime use only (memmap path)
 PLOT_IDS = "plot_ids.npy"            # must exist if you use the memmap path
 
