@@ -26,7 +26,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@movies_database:5432/${POSTGRES_DB}
-      ARTIFACTS_DIR: /artifacts/v1
+      ARTIFACTS_DIR: /artifacts
       CHROMA_DIR: /chroma_data
       GEMINI_API_KEY: ${GEMINI_API_KEY}
     ports:

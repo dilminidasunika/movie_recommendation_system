@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:5173"]  # Vite dev server
 
     # Chroma collections (swap tags_collection after a rebuild)
-    plots_collection: str = "plots"
-    tags_collection: str = "tags"
+    plots_collection: str = "plot_embeddings"
+    tags_collection: str = "tag_vectors"
 
     # Retrieval tunables (tuned in step 53)
     chip_weight: float = 1.0

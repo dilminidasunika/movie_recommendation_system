@@ -3,11 +3,14 @@
 import re
 
 # Order = column-block order of the saved matrix. MUST match your fitted vectorizers.
+HIGH_FIELDS = ['cast_members', 'genres', 'spoken_languages', 'production_countries']
+MID_FIELDS  = ['producers', 'writers', 'music_composer']
+LOW_FIELDS  = ['director', 'keywords']
+
 TIERS: list[list[str]] = [
-    ["director", "cast_members"],                                   # tier 0 (placeholder)
-    ["genres", "keywords", "writers"],                              # tier 1 (placeholder)
-    ["producers", "music_composer", "production_companies",
-     "production_countries", "spoken_languages"],                   # tier 2 (placeholder)
+    HIGH_FIELDS,   # tier 0 — tag_vectorizer_high
+    MID_FIELDS,    # tier 1 — tag_vectorizer_mid
+    LOW_FIELDS,    # tier 2 — tag_vectorizer_low
 ]
 
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")

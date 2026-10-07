@@ -11,7 +11,7 @@ from app.api import movies, tags, recommend
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    open_pool()
+    app.state.pool = open_pool()
     artifacts.load_all()
     chroma.get_collection(settings.plots_collection)
     chroma.get_collection(settings.tags_collection)

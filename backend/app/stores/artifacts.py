@@ -13,7 +13,9 @@ log = logging.getLogger(__name__)
 
 TAG_MATRIX = "tag_matrix.npz"        # CSR, rows aligned with matrix_ids.npy
 MATRIX_IDS = "tag_matrix_movie_ids.npy"        # int64 movie ids, one per row
-VECTORIZERS = "vectorizers.joblib"   # list of 3 fitted CountVectorizers, same order as column blocks
+VECTORIZER_HIGH = "tag_vectorizer_high.joblib"  # fitted CountVectorizer for HIGH_FIELDS
+VECTORIZER_MID  = "tag_vectorizer_mid.joblib"   # fitted CountVectorizer for MID_FIELDS
+VECTORIZER_LOW  = "tag_vectorizer_low.joblib"    # fitted CountVectorizer for LOW_FIELDS
 SVD = "tag_svd_model.joblib"                   # fitted TruncatedSVD
 PLOT_EMB = "plot_embeddings.npy"     # optional runtime use only (memmap path)
 PLOT_IDS = "plot_ids.npy"            # must exist if you use the memmap path
@@ -42,7 +44,11 @@ def id_to_row() -> dict[int, int]:
 
 @lru_cache(maxsize=1)
 def vectorizers() -> list:
-    return joblib.load(_p(VECTORIZERS))
+    return [
+        joblib.load(_p(VECTORIZER_HIGH)),
+        joblib.load(_p(VECTORIZER_MID)),
+        joblib.load(_p(VECTORIZER_LOW)),
+    ]
 
 
 @lru_cache(maxsize=1)
