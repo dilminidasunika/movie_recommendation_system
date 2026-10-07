@@ -1,0 +1,5 @@
+outs:
+- md5: 3c458fe65db97aec798b4f0bc10487b1
+  size: 318059432
+  hash: md5
+  path: moviedb.sql.gz
