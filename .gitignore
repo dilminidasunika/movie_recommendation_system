@@ -1,4 +1,4 @@
 /data
 **/.ipynb_checkpoints/
 .env
-/database
+/database/moviedb.sql.gz
