@@ -79,7 +79,7 @@ requests==2.34.2
 requests-oauthlib==2.0.0
 rich==15.0.0
 rpds-py==2026.6.3
-scikit-learn==1.9.1
+scikit-learn==1.6.1
 scipy==1.18.1
 shellingham==1.5.4
 six==1.17.0
