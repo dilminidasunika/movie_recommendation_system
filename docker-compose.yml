@@ -33,7 +33,9 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/artifacts:/artifacts:ro
-      - ./backend/chroma_data:/chroma_data
+      - chroma_data:/chroma_data
 
 volumes:
   pgdata:
+  chroma_data:
+    external: true
