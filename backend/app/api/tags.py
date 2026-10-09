@@ -73,7 +73,7 @@ def search_tags(
 ):
     type_list = _parse_types(types)
     q = q.strip().lower()
-    if len(q) < 3:
+    if len(q) < 3 and "original_language" not in type_list:
         return []
     safe = _escape_like(q)
     params = {
