@@ -173,3 +173,7 @@ details summary { cursor: pointer; color: var(--accent); font-size: 0.9rem; }
   .layout { grid-template-columns: 1fr; }
   .panel { position: static; max-height: none; overflow: visible; }
 }
+
+/* Multi-select dropdown */
+.multi { display: flex; flex-direction: column; gap: 8px; }
+.tick { width: 18px; text-align: center; color: var(--accent); font-weight: 700; }

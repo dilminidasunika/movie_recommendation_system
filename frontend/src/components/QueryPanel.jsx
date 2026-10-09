@@ -1,5 +1,6 @@
 import AsyncCombobox from "./AsyncCombobox";
 import ChipList from "./ChipList";
+import MultiSelect from "./MultiSelect";
 import { searchMovies, searchTags } from "../api";
 import { GENRES, LANGUAGES, TAG_LABELS } from "../constants";
 import { canSubmit, dateRangeInvalid } from "../query";
@@ -109,12 +110,16 @@ export default function QueryPanel({ query, setQuery, onSubmit, loading }) {
         guarantee a person's films appear.
       </p>
 
-      <ToggleGroup
-        legend="Original language"
-        options={LANGUAGES}
-        selected={query.languages}
-        onToggle={(v) => set({ languages: toggle(query.languages, v) })}
-      />
+      <div className="field">
+        <label>Original language</label>
+        <MultiSelect
+          label="Original language"
+          placeholder="Search languages"
+          options={LANGUAGES}
+          selected={query.languages}
+          onChange={(languages) => set({ languages })}
+        />
+      </div>
 
       <ToggleGroup
         legend="Genres (any of)"
