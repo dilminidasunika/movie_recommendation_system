@@ -17,7 +17,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 ALLOW_NO_META = os.environ.get("ALLOW_NO_META") == "1"
 MARKER = os.path.join(CHROMA_DIR, ".linux_ready")
 
-TAGS_NAME, PLOTS_NAME = "tags", "plots"
+TAGS_NAME, PLOTS_NAME = "tags_vectors", "plots_embeddings"
 SPECS = [
     # (collection, vectors file, ids file, expected dim)
     (TAGS_NAME,  "tag_matrix_svd_reduced_clean.npy", "tag_svd_movie_ids_clean.npy",  300),
