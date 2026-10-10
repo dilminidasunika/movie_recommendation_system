@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useDebounce } from "../hooks";
+import { isAbort } from "../api";
 
 const MIN_CHARS = 2;
 const MAX_VISIBLE = 10;
@@ -18,6 +19,7 @@ export default function AsyncCombobox({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [status, setStatus] = useState("idle"); // idle | loading | error
+  const [errorMsg, setErrorMsg] = useState("");
   const query = text.trim();
   const debounced = useDebounce(query, 250);
   const rootRef = useRef(null);
@@ -38,7 +40,10 @@ export default function AsyncCombobox({
         setStatus("idle");
       })
       .catch((err) => {
-        if (err.name !== "AbortError") setStatus("error");
+        if (isAbort(err)) return;
+        setOptions([]);
+        setErrorMsg(err.message || "Search failed.");
+        setStatus("error");
       });
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -104,7 +109,7 @@ export default function AsyncCombobox({
       {showPanel && (
         <ul className="combo-list" id={listId} role="listbox">
           {status === "loading" && <li className="combo-note">Searching…</li>}
-          {status === "error" && <li className="combo-note error">Search failed. Check that the backend is running.</li>}
+          {status === "error" && <li className="combo-note error">{errorMsg}</li>}
           {settled && status === "idle" && visible.length === 0 && (
             <li className="combo-note">No matches</li>
           )}

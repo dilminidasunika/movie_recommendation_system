@@ -56,7 +56,7 @@ function Skeleton() {
   );
 }
 
-export default function Results({ state, query, onClearFilters }) {
+export default function Results({ state, query, onClearFilters, onRetry }) {
   const { status, items, error } = state;
 
   if (status === "idle") {
@@ -78,7 +78,9 @@ export default function Results({ state, query, onClearFilters }) {
       <div className="empty error-box" role="alert">
         <h2>Could not get recommendations</h2>
         <p>{error}</p>
-        <p>Check that the backend is running, then try again.</p>
+        <button type="button" className="secondary" onClick={onRetry}>
+          Try again
+        </button>
       </div>
     );
   }

@@ -1,12 +1,12 @@
 import AsyncCombobox from "./AsyncCombobox";
 import ChipList from "./ChipList";
-import MultiSelect from "./MultiSelect";
-import { searchMovies, searchTags } from "../api";
-import { GENRES, LANGUAGES, TAG_LABELS } from "../constants";
+import { searchLanguages, searchMovies, searchTags } from "../api";
+import { GENRES, TAG_LABELS, languageName } from "../constants";
 import { canSubmit, dateRangeInvalid } from "../query";
 
 const tagKey = (t) => `${t.tag_type}:${t.name}`;
-const tagLabel = (t) => `${TAG_LABELS[t.tag_type] ?? t.tag_type}: ${t.name}`;
+const tagName = (t) => (t.tag_type === "spoken_languages" ? languageName(t.name) : t.name);
+const tagLabel = (t) => `${TAG_LABELS[t.tag_type] ?? t.tag_type}: ${tagName(t)}`;
 const movieYear = (m) => m.release_year ?? m.year ?? "";
 
 function toggle(list, value) {
@@ -90,7 +90,7 @@ export default function QueryPanel({ query, setQuery, onSubmit, loading }) {
           isSelected={(t) => query.tags.some((x) => tagKey(x) === tagKey(t))}
           renderOption={(t) => (
             <>
-              <span className="opt-title">{t.name}</span>
+              <span className="opt-title">{tagName(t)}</span>
               <span className="opt-badge">{TAG_LABELS[t.tag_type] ?? t.tag_type}</span>
             </>
           )}
@@ -112,12 +112,25 @@ export default function QueryPanel({ query, setQuery, onSubmit, loading }) {
 
       <div className="field">
         <label>Original language</label>
-        <MultiSelect
-          label="Original language"
-          placeholder="Search languages"
-          options={LANGUAGES}
-          selected={query.languages}
-          onChange={(languages) => set({ languages })}
+        <AsyncCombobox
+          label="Search original language"
+          placeholder="Search by name or code, e.g. tamil or ta"
+          fetchOptions={searchLanguages}
+          onSelect={(l) => set({ languages: [...query.languages, l.name] })}
+          getKey={(l) => l.name}
+          isSelected={(l) => query.languages.includes(l.name)}
+          renderOption={(l) => (
+            <>
+              <span className="opt-title">{languageName(l.name)}</span>
+              <span className="opt-meta">{l.name}</span>
+            </>
+          )}
+        />
+        <ChipList
+          items={query.languages}
+          getKey={(code) => code}
+          getLabel={(code) => `${languageName(code)} (${code})`}
+          onRemove={(code) => set({ languages: query.languages.filter((c) => c !== code) })}
         />
       </div>
 

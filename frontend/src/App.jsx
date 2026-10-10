@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import QueryPanel from "./components/QueryPanel";
 import Results from "./components/Results";
-import { recommend } from "./api";
+import { isAbort, recommend } from "./api";
 import { INITIAL_QUERY, buildRequest } from "./query";
 
 export default function App() {
@@ -24,8 +24,8 @@ export default function App() {
       const items = await recommend(buildRequest(query), controller.signal);
       setState({ status: "done", items, error: "" });
     } catch (err) {
-      if (err.name === "AbortError") return;
-      setState({ status: "error", items: [], error: err.message });
+      if (isAbort(err)) return;
+      setState({ status: "error", items: [], error: err.message || "Something went wrong." });
     }
   }
 
@@ -48,7 +48,7 @@ export default function App() {
           loading={state.status === "loading"}
         />
         <section className="results" ref={resultsRef} aria-live="polite">
-          <Results state={state} query={query} onClearFilters={clearFilters} />
+          <Results state={state} query={query} onClearFilters={clearFilters} onRetry={submit} />
         </section>
       </main>
     </div>
