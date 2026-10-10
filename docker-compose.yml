@@ -20,7 +20,7 @@ services:
   backend:
     build: ./backend
     container_name: movies_backend
-    restart: unless-stopped
+    restart: "no"
     depends_on:
       database:
         condition: service_healthy
