@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
-from app.db.pool import get_pool
+from app.db.pool import current_pool                                    # CHANGED
 
 POST_FILTER_BATCH = 5000
 
@@ -55,9 +55,9 @@ def gate_ids(f: Filters, limit: int) -> list[int]:
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
     sql += " LIMIT %s"
-    with get_pool().connection() as conn:
+    with current_pool().connection() as conn:                           # CHANGED
         rows = conn.execute(sql, [*params, limit]).fetchall()
-    return [int(r[0]) for r in rows]
+    return [int(r["id"]) for r in rows]                                 # CHANGED
 
 
 def filter_ids(ids: list[int], f: Filters) -> set[int]:
@@ -67,10 +67,10 @@ def filter_ids(ids: list[int], f: Filters) -> set[int]:
     clauses, params = _where(f)
     where = " AND ".join(["id = ANY(%s)", *clauses])
     keep: set[int] = set()
-    with get_pool().connection() as conn:
+    with current_pool().connection() as conn:                           # CHANGED
         for i in range(0, len(ids), POST_FILTER_BATCH):
             chunk = ids[i:i + POST_FILTER_BATCH]
             rows = conn.execute(f"SELECT id FROM movies WHERE {where}",
                                 [chunk, *params]).fetchall()
-            keep.update(int(r[0]) for r in rows)
+            keep.update(int(r["id"]) for r in rows)                     # CHANGED
     return keep
