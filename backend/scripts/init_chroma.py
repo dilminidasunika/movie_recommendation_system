@@ -28,7 +28,7 @@ MIN_SELF_RECALL = 0.97
 
 
 def load_metadata() -> dict:
-    """id -> {"original_language": str, "release_year": int}; null keys omitted."""
+    """id -> {"original_language": str, "release_date": int}; null keys omitted."""
     if not DATABASE_URL:
         if ALLOW_NO_META:
             print("WARNING: no DATABASE_URL, building WITHOUT filter metadata.")
@@ -41,13 +41,13 @@ def load_metadata() -> dict:
     try:
         with conn.cursor(name="meta_cur") as cur:  # server-side cursor
             cur.itersize = 10000
-            cur.execute("SELECT id, original_language, release_year FROM movies")
+            cur.execute("SELECT id, original_language, release_date FROM movies")
             for mid, lang, yr in cur:
                 m = {}
                 if lang:
                     m["original_language"] = str(lang).lower()
                 if yr is not None:
-                    m["release_year"] = int(yr)
+                    m["release_date"] = int(yr)
                 if m:
                     meta[int(mid)] = m
     finally:
