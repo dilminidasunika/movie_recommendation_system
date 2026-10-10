@@ -12,7 +12,7 @@ import chromadb
 import numpy as np
 
 CHROMA_DIR = os.environ.get("CHROMA_DIR", "/chroma_data")
-ARTIFACTS_DIR = os.environ.get("ARTIFACTS_DIR", "/artifacts/v1")
+ARTIFACTS_DIR = os.path.join(os.environ.get("ARTIFACTS_DIR", "/artifacts"), "v1")
 DATABASE_URL = os.environ.get("DATABASE_URL")
 ALLOW_NO_META = os.environ.get("ALLOW_NO_META") == "1"
 MARKER = os.path.join(CHROMA_DIR, ".linux_ready")
@@ -42,12 +42,12 @@ def load_metadata() -> dict:
         with conn.cursor(name="meta_cur") as cur:  # server-side cursor
             cur.itersize = 10000
             cur.execute("SELECT id, original_language, release_date FROM movies")
-            for mid, lang, yr in cur:
+            for mid, lang, rd in cur:
                 m = {}
                 if lang:
                     m["original_language"] = str(lang).lower()
-                if yr is not None:
-                    m["release_date"] = int(yr)
+                if rd is not None:
+                    m["release_date"] = rd.year
                 if m:
                     meta[int(mid)] = m
     finally:
