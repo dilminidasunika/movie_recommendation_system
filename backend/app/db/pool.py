@@ -30,3 +30,10 @@ def close_pool() -> None:
 def get_pool(request: Request) -> ConnectionPool:
     """FastAPI dependency: the pool created in lifespan."""
     return request.app.state.pool
+
+
+def current_pool() -> ConnectionPool:                                   # NEW
+    """Request-free accessor for services running in worker threads."""
+    if _pool is None:
+        raise RuntimeError("DB pool not initialised (open_pool() not called)")
+    return _pool

@@ -20,7 +20,7 @@ services:
   backend:
     build: ./backend
     container_name: movies_backend
-    restart: unless-stopped
+    restart: "no"
     depends_on:
       database:
         condition: service_healthy
@@ -33,7 +33,9 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/artifacts:/artifacts:ro
-      - ./backend/chroma_data:/chroma_data
+      - chroma_data:/chroma_data
 
 volumes:
   pgdata:
+  chroma_data:
+    external: true
