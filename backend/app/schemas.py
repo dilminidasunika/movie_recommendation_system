@@ -38,3 +38,28 @@ class RecommendRequest(BaseModel):
     @property
     def has_filters(self) -> bool:
         return bool(self.original_language or self.genres or self.date_from or self.date_to)
+
+
+class MovieOut(BaseModel):
+    id: int
+    title: str
+    release_date: date | None = None
+    original_language: str | None = None
+    genres: list[str] = []
+    director: list[str] = []
+    cast_members: list[str] = []
+    overview: str | None = None
+
+class ResultOut(BaseModel):
+    movie_id: int
+    final_score: float
+    tag_score: float | None      # None = candidate had no tags
+    plot_score: float | None     # None = no plot signal, or tags-only query
+    movie: MovieOut
+    explanation: str | None      # None if the LLM call failed
+
+class RecommendResponse(BaseModel):
+    results: list[ResultOut]
+    warnings: list[str] = []
+    pool_size: int
+    timings: dict[str, float] | None = None

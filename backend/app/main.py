@@ -4,25 +4,19 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg_pool import ConnectionPool
 
-from app.api import tags
-from app.api import movies
-from app.api import recommend
 from app.config import settings
-from app.db.pool import get_pool, open_pool
-
-# Uncomment once these exist:
-# from app.stores.artifacts import load_artifacts
-# from app.stores.chroma import open_chroma
-
+from app.db.pool import get_pool, open_pool, close_pool
+from app.stores import artifacts, chroma
+from app.api import movies, tags, recommend
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load everything once at startup, never per request.
     app.state.pool = open_pool()
-    # app.state.artifacts = load_artifacts(settings.artifacts_dir, settings.artifact_version)
-    # app.state.chroma = open_chroma(settings.chroma_dir)
+    artifacts.load_all()
+    chroma.get_collection(settings.plots_collection)
+    chroma.get_collection(settings.tags_collection)
     yield
-    app.state.pool.close()
+    close_pool()
 
 
 app = FastAPI(title="Movie Recommender", lifespan=lifespan)
