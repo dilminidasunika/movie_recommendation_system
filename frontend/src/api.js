@@ -5,7 +5,7 @@ import { TAG_TYPES, codesMatchingName } from "./constants";
 // Client. Vite proxies /api to http://localhost:8000 (see vite.config.js).
 // ---------------------------------------------------------------------------
 const http = axios.create({
-  baseURL: "/api",
+  baseURL: "http://localhost:8000/api",
   timeout: 10_000, // searches; /recommend overrides this because of the LLM call
   headers: { "Content-Type": "application/json" },
 });
@@ -158,6 +158,8 @@ export async function searchLanguages(q, signal) {
 // POST /api/recommend  ->  { results: [...] }
 // Long timeout (LLM explanations), no retry (expensive), never cached.
 export async function recommend(body, signal) {
+  console.log("Calling /recommend with body:", body);
   const data = await call({ url: "/recommend", method: "POST", data: body, signal, timeout: 120_000 });
+  console.log("Response from /recommend:", data);
   return list(data, "results", "recommendations");
 }

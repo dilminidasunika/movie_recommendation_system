@@ -150,8 +150,7 @@ def verify(col, X, ids, name):
     got = dict(zip(r["ids"], r["embeddings"]))
     for j in samp[:200]:
         E = np.asarray(got[str(int(ids[j]))], dtype=np.float32)
-        assert np.allclose(E, np.asarray(X[j], dtype=np.float32), atol=1e-4), \
-            f"[{name}] stored vector differs from source at row {j}"
+        assert np.allclose(E, np.asarray(X[j], dtype=np.float32), atol=1e-4),             f"[{name}] stored vector differs from source at row {j}"
 
     # HNSW recall vs exact brute force, tie-safe (compares distances, not ids)
     pick = np.sort(rng.choice(len(ids), size=min(300, len(ids)), replace=False))
@@ -182,8 +181,33 @@ def build_one(name):
     del meta
     verify(col, X, ids, name)
 
+    # Sanity check filter while collection is already open in memory
+    if DATABASE_URL:
+        print(f"[{name}] checking filter sanity...", flush=True)
+        r = col.query(
+            query_embeddings=np.asarray(X[:1], dtype=np.float32),
+            n_results=5,
+            where={"original_language": {"$in": ["en"]}},
+        )
+        assert r["ids"][0], f"[{name}] filtered query returned nothing"
+        print(f"[{name}] filter sanity OK", flush=True)
+
     with open(done_marker(name), "w") as f:
         f.write("ok")
+    print(f"[{name}] verified and done marker written", flush=True)
+
+    # Force cleanup and instant process exit to avoid Python interpreter
+    # hanging on ChromaDB's lingering background worker threads / locks.
+    if hasattr(client, "_system"):
+        try:
+            client._system.stop()
+        except Exception:
+            pass
+    del col
+    del client
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 def main():
@@ -205,20 +229,10 @@ def main():
         if os.path.exists(done_marker(name)):
             print(f"[{name}] already built and verified, skipping", flush=True)
             continue
-        # separate process => all memory returned to the OS when it exits
+        print(f"[{name}] starting build subprocess...", flush=True)
         r = subprocess.run([sys.executable, "-m", "scripts.init_chroma", "--only", name])
         if r.returncode != 0:
             sys.exit(f"[{name}] build failed (exit {r.returncode}); rerun to retry this collection")
-
-    if DATABASE_URL:  # filter sanity: must return results
-        client = chromadb.PersistentClient(path=CHROMA_DIR)
-        for name, vec_file, *_ in SPECS:
-            X = np.load(os.path.join(ARTIFACTS_DIR, vec_file), mmap_mode="r")
-            r = client.get_collection(name).query(
-                query_embeddings=np.asarray(X[:1], dtype=np.float32),
-                n_results=5, where={"original_language": {"$in": ["en"]}})
-            assert r["ids"][0], f"[{name}] filtered query returned nothing"
-        print("Filtered query sanity OK", flush=True)
 
     with open(MARKER, "w") as f:  # only after everything passed
         f.write("ok")
