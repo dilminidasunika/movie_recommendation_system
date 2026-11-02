@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 TagType = Literal[
     "cast_members", "director", "writers", "producers", "music_composer",
-    "keywords", "production_countries", "spoken_languages",
+    "keywords", "production_countries", "spoken_languages","genres"
 ]
 
 class TagIn(BaseModel):
