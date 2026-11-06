@@ -3,7 +3,7 @@ import { useDebounce } from "../hooks";
 import { isAbort } from "../api";
 
 const MIN_CHARS = 2;
-const MAX_VISIBLE = 10;
+const MAX_VISIBLE = 45;
 
 export default function AsyncCombobox({
   label,
