@@ -49,6 +49,7 @@ class MovieOut(BaseModel):
     director: list[str] = []
     cast_members: list[str] = []
     overview: str | None = None
+    poster_path: str | None = None
 
 class ResultOut(BaseModel):
     movie_id: int
