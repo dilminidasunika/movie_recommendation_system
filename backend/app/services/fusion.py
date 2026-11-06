@@ -1,7 +1,4 @@
-# services/fusion.py
 import numpy as np
-
-EPS = 1e-6
 
 def _minmax(x: np.ndarray, ok: np.ndarray) -> np.ndarray:
     out = np.zeros(len(x), dtype=float)
@@ -9,22 +6,20 @@ def _minmax(x: np.ndarray, ok: np.ndarray) -> np.ndarray:
     if v.size == 0:
         return out
     spread = np.ptp(v)
-    out[ok] = v if (v.size < 2 or spread < 1e-9) else (v - v.min()) / spread  # raw fallback
+    # constant fallback keeps the 0-1 scale (was: raw values)
+    out[ok] = 1.0 if (v.size < 2 or spread < 1e-9) else (v - v.min()) / spread
     return out
 
 def fuse(s, tag_weight: float, top_n: int) -> list[dict]:
+    if not 0.0 <= tag_weight <= 1.0:
+        raise ValueError("tag_weight must be in [0, 1]")
+
     tn, pn = _minmax(s.tag, s.tag_ok), _minmax(s.plot, s.plot_ok)
 
-    # EPS keeps denom > 0 when tag_weight is exactly 0 or 1 and a
-    # candidate only has the "zero-weighted" signal.
-    wt = np.where(s.tag_ok, tag_weight + EPS, 0.0)
-    wp = np.where(s.plot_ok, (1 - tag_weight) + EPS, 0.0)
-    denom = wt + wp
-    final = np.divide(wt * tn + wp * pn, denom, out=np.zeros_like(denom), where=denom > 0)
+    final = tag_weight * tn + (1 - tag_weight) * pn   # missing signal contributes 0
 
-    # candidates with neither signal are dropped
-    final[denom == 0] = -1.0
-    order = np.argsort(-final)[:top_n]
+    final[~(s.tag_ok | s.plot_ok)] = -1.0             # neither signal: drop
+    order = np.argsort(-final, kind="stable")[:top_n]
     return [
         {
             "movie_id": s.ids[i],
