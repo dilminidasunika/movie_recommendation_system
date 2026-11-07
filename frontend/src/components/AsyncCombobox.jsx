@@ -25,13 +25,16 @@ export default function AsyncCombobox({
   const rootRef = useRef(null);
   const listId = useId();
 
+  const isShort = debounced.length < MIN_CHARS;
+  const currentOptions = isShort ? [] : options;
+  const currentStatus = isShort ? "idle" : status;
+
   useEffect(() => {
     if (debounced.length < MIN_CHARS) {
-      setOptions([]);
-      setStatus("idle");
       return;
     }
     const controller = new AbortController();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus("loading");
     fetchOptions(debounced, controller.signal)
       .then((items) => {
@@ -57,8 +60,8 @@ export default function AsyncCombobox({
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
 
-  const visible = options.filter((o) => !isSelected(o)).slice(0, MAX_VISIBLE);
-  const settled = query.length >= MIN_CHARS && query === debounced && status !== "loading";
+  const visible = currentOptions.filter((o) => !isSelected(o)).slice(0, MAX_VISIBLE);
+  const settled = debounced === query && debounced.length >= MIN_CHARS;
 
   function pick(item) {
     onSelect(item);
@@ -68,13 +71,16 @@ export default function AsyncCombobox({
   }
 
   function onKeyDown(e) {
+    if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      setOpen(true);
+      return;
+    }
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setOpen(true);
-      setActive((i) => Math.min(i + 1, Math.max(visible.length - 1, 0)));
+      setActive((a) => (visible.length ? (a + 1) % visible.length : 0));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActive((i) => Math.max(i - 1, 0));
+      setActive((a) => (visible.length ? (a - 1 + visible.length) % visible.length : 0));
     } else if (e.key === "Enter") {
       if (open && visible[active]) {
         e.preventDefault();
@@ -108,9 +114,9 @@ export default function AsyncCombobox({
       />
       {showPanel && (
         <ul className="combo-list" id={listId} role="listbox">
-          {status === "loading" && <li className="combo-note">Searching…</li>}
-          {status === "error" && <li className="combo-note error">{errorMsg}</li>}
-          {settled && status === "idle" && visible.length === 0 && (
+          {currentStatus === "loading" && <li className="combo-note">Searching…</li>}
+          {currentStatus === "error" && <li className="combo-note error">{errorMsg}</li>}
+          {settled && currentStatus === "idle" && visible.length === 0 && (
             <li className="combo-note">No matches</li>
           )}
           {visible.map((item, i) => (

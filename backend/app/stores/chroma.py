@@ -27,9 +27,9 @@ def build_where(languages: list[str] | None,
     if languages:
         clauses.append({"original_language": {"$in": [l.lower() for l in languages]}})
     if year_from is not None:
-        clauses.append({"release_year": {"$gte": int(year_from)}})
+        clauses.append({"release_date": {"$gte": int(year_from)}})
     if year_to is not None:
-        clauses.append({"release_year": {"$lte": int(year_to)}})
+        clauses.append({"release_date": {"$lte": int(year_to)}})
     if not clauses:
         return None
     return clauses[0] if len(clauses) == 1 else {"$and": clauses}

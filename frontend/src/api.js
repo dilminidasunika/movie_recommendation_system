@@ -163,3 +163,11 @@ export async function recommend(body, signal) {
   console.log("Response from /recommend:", data);
   return list(data, "results", "recommendations");
 }
+
+
+// GET /api/movies/:id -> Movie details object
+export function getMovie(id, signal) {
+  return cached('movie:' + id, async () =>
+    call({ url: '/movies/' + id, signal }, { retry: true })
+  );
+}

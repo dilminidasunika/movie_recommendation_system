@@ -1,90 +1,46 @@
-import { useState } from "react";
 import { hasFilters } from "../query";
+import MoviePoster from "./MoviePoster";
+import ScoreBar from "./ScoreBar";
 
 const tagName = (t) => (typeof t === "string" ? t : t?.name ?? "");
 
-function getPosterUrl(posterPath) {
-  if (!posterPath || typeof posterPath !== "string") return null;
-  const trimmed = posterPath.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    return trimmed;
-  }
-  const cleanPath = trimmed.replace(/^\/+/, "");
-  return `https://image.tmdb.org/t/p/w500/${cleanPath}`;
-}
-
-function MoviePoster({ path, title }) {
-  const [hasError, setHasError] = useState(false);
-  const url = getPosterUrl(path);
-
-  if (!url || hasError) {
-    return (
-      <div className="card-poster placeholder" aria-label={title ? `No poster for ${title}` : "No poster available"}>
-        <svg
-          className="poster-fallback-icon"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          aria-hidden="true"
-        >
-          <rect x="2" y="3" width="20" height="18" rx="2" />
-          <line x1="7" y1="3" x2="7" y2="21" />
-          <line x1="17" y1="3" x2="17" y2="21" />
-          <line x1="2" y1="12" x2="22" y2="12" />
-          <line x1="2" y1="7" x2="7" y2="7" />
-          <line x1="2" y1="17" x2="7" y2="17" />
-          <line x1="17" y1="17" x2="22" y2="17" />
-          <line x1="17" y1="7" x2="22" y2="7" />
-        </svg>
-        <span className="poster-fallback-text">No poster</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="card-poster">
-      <img
-        src={url}
-        alt={title ? `${title} poster` : "Movie poster"}
-        className="poster-img"
-        loading="lazy"
-        onError={() => setHasError(true)}
-      />
-    </div>
-  );
-}
-
-function ScoreBar({ label, value, kind }) {
-  const has = typeof value === "number" && !Number.isNaN(value);
-  return (
-    <div className="score-row">
-      <span className="score-label">{label}</span>
-      <div className="bar" aria-hidden="true">
-        {has && <div className={`bar-fill ${kind}`} style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }} />}
-      </div>
-      <span className="score-value">{has ? value.toFixed(2) : "none"}</span>
-    </div>
-  );
-}
-
-function MovieCard({ movie, rank }) {
+function MovieCard({ movie, rank, onSelect }) {
   const overlap = (movie.overlapping_tags ?? []).map(tagName).filter(Boolean);
   const title = movie.movie?.title ?? movie.title ?? "Untitled";
   const rawYear = movie.movie?.release_date ? movie.movie.release_date.slice(0, 4) : null;
   const year = rawYear ?? movie.release_year ?? movie.year ?? movie.movie?.release_year;
   const posterPath = movie.movie?.poster_path ?? movie.poster_path;
 
+  function handleClick(e) {
+    if (e.target.closest("details") || e.target.closest("button")) {
+      return;
+    }
+    onSelect?.(movie);
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onSelect?.(movie);
+    }
+  }
+
   return (
-    <li className="card">
+    <li
+      className="card card-clickable"
+      tabIndex={0}
+      role="button"
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      aria-label={`View details for ${title}`}
+    >
       <MoviePoster path={posterPath} title={title} />
       <div className="card-body">
         <div className="card-head">
           <div className="card-title-group">
             <span className="rank">{rank}</span>
-            <h3>{title}</h3>
-            {year ? <span className="year">{year}</span> : null}
+            <h3 className="card-title-link">{title}</h3>
+            {year ? <span className="year">({year})</span> : null}
           </div>
           {typeof movie.final_score === "number" && (
             <span className="final">{movie.final_score.toFixed(2)}</span>
@@ -96,11 +52,16 @@ function MovieCard({ movie, rank }) {
         </div>
         {movie.explanation && <p className="explanation">{movie.explanation}</p>}
         {overlap.length > 0 && (
-          <details>
+          <details onClick={(e) => e.stopPropagation()}>
             <summary>Shared tags ({overlap.length})</summary>
             <p className="overlap">{overlap.join(", ")}</p>
           </details>
         )}
+        <div className="card-action-bar">
+          <span className="card-action-text">
+            View details &amp; plot <span aria-hidden="true">&rarr;</span>
+          </span>
+        </div>
       </div>
     </li>
   );
@@ -124,7 +85,7 @@ function Skeleton() {
   );
 }
 
-export default function Results({ state, query, onClearFilters, onRetry }) {
+export default function Results({ state, query, onClearFilters, onRetry, onSelectMovie }) {
   const { status, items, error } = state;
 
   if (status === "idle") {
@@ -176,7 +137,12 @@ export default function Results({ state, query, onClearFilters, onRetry }) {
       <h2 className="results-title">{items.length} recommendations</h2>
       <ul className="cards">
         {items.map((m, i) => (
-          <MovieCard key={m.id ?? m.movie_id ?? i} movie={m} rank={i + 1} />
+          <MovieCard
+            key={m.id ?? m.movie_id ?? i}
+            movie={m}
+            rank={i + 1}
+            onSelect={onSelectMovie}
+          />
         ))}
       </ul>
     </>
