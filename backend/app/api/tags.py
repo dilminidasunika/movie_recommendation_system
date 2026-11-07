@@ -9,7 +9,7 @@ router = APIRouter(prefix="/tags", tags=["tags"])
 VALID_TYPES = {
     "genres", "original_language", "cast_members", "director",
     "writers", "producers", "music_composer", "keywords",
-    "production_companies", "production_countries", "spoken_languages",
+    "production_countries", "spoken_languages",
 }
 STATIC_TYPES = {"genres", "original_language"}
 

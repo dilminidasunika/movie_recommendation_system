@@ -15,7 +15,6 @@ export const TAG_LABELS = {
   producers: "Producer",
   music_composer: "Composer",
   keywords: "Keyword",
-  production_companies: "Company",
   production_countries: "Country",
   spoken_languages: "Spoken language",
 };
