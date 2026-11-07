@@ -38,7 +38,7 @@ export default function App() {
     <div className="app">
       <header className="site-header">
         <h1>Movie finder</h1>
-        <p>Content-based picks, with a reason for each one.</p>
+        <p>Content-based picks.</p>
       </header>
       <main className="layout">
         <QueryPanel

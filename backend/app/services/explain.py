@@ -7,7 +7,7 @@ from functools import lru_cache
 
 from google import genai
 from google.genai import types
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.config import settings
 from app.db import queries
@@ -108,15 +108,23 @@ async def explain(ranked: list[dict], movies: dict[int, dict], q, req) -> dict[i
                 response_mime_type="application/json",
                 response_schema=Explanations,
                 temperature=0.3,
-                max_output_tokens=2048,
+                max_output_tokens=4096,
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
             ),
         ),
         timeout=settings.explain_timeout_s,
     )
 
-    parsed: Explanations | None = resp.parsed
-    if parsed is None:                       # schema parse failed
-        parsed = Explanations.model_validate_json(resp.text)
+    parsed = resp.parsed
+    if parsed is None:
+        if not resp.text:
+            return {}
+        try:
+            parsed = Explanations.model_validate_json(resp.text)
+        except ValidationError as e:
+            log.warning("explain: unparseable Gemini output, skipping: %s", e)
+            return {}
 
     # Drop hallucinated ids and blanks
     return {i.movie_id: i.explanation.strip()

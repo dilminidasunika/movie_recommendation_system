@@ -21,7 +21,7 @@ class RecommendRequest(BaseModel):
     tag_weight: float = Field(0.5, ge=0, le=1)
     top_n: int = Field(20, ge=1, le=100)
 
-    @field_validator("original_language", "genres")
+    @field_validator("original_language")
     @classmethod
     def lower(cls, v): return [x.strip().lower() for x in v]
 
