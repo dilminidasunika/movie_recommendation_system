@@ -6,3 +6,4 @@ __pycache__/
 !/artifacts/*.dvc
 !/artifacts/.gitignore
 /chroma_data
+/tests

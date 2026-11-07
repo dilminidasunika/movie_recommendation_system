@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 TagType = Literal[
     "cast_members", "director", "writers", "producers", "music_composer",
-    "keywords", "production_countries", "spoken_languages",
+    "keywords", "production_countries", "spoken_languages","genres"
 ]
 
 class TagIn(BaseModel):
@@ -21,7 +21,7 @@ class RecommendRequest(BaseModel):
     tag_weight: float = Field(0.5, ge=0, le=1)
     top_n: int = Field(20, ge=1, le=100)
 
-    @field_validator("original_language", "genres")
+    @field_validator("original_language")
     @classmethod
     def lower(cls, v): return [x.strip().lower() for x in v]
 
@@ -49,6 +49,7 @@ class MovieOut(BaseModel):
     director: list[str] = []
     cast_members: list[str] = []
     overview: str | None = None
+    poster_path: str | None = None
 
 class ResultOut(BaseModel):
     movie_id: int

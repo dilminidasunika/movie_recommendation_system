@@ -50,3 +50,12 @@ def search_movies(
     }
     with pool.connection() as conn:
         return conn.execute(MOVIE_SEARCH_SQL, params).fetchall()
+
+@router.get('/{movie_id}', response_model=dict)
+def get_movie(movie_id: int):
+    from app.db import queries
+    from fastapi import HTTPException
+    movies = queries.get_movies([movie_id])
+    if movie_id not in movies:
+        raise HTTPException(status_code=404, detail='Movie not found')
+    return movies[movie_id]

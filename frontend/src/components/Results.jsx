@@ -1,42 +1,68 @@
 import { hasFilters } from "../query";
+import MoviePoster from "./MoviePoster";
+import ScoreBar from "./ScoreBar";
 
 const tagName = (t) => (typeof t === "string" ? t : t?.name ?? "");
 
-function ScoreBar({ label, value, kind }) {
-  const has = typeof value === "number" && !Number.isNaN(value);
-  return (
-    <div className="score-row">
-      <span className="score-label">{label}</span>
-      <div className="bar" aria-hidden="true">
-        {has && <div className={`bar-fill ${kind}`} style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }} />}
-      </div>
-      <span className="score-value">{has ? value.toFixed(2) : "none"}</span>
-    </div>
-  );
-}
-
-function MovieCard({ movie, rank }) {
+function MovieCard({ movie, rank, onSelect }) {
   const overlap = (movie.overlapping_tags ?? []).map(tagName).filter(Boolean);
-  const year = movie.release_year ?? movie.year;
+  const title = movie.movie?.title ?? movie.title ?? "Untitled";
+  const rawYear = movie.movie?.release_date ? movie.movie.release_date.slice(0, 4) : null;
+  const year = rawYear ?? movie.release_year ?? movie.year ?? movie.movie?.release_year;
+  const posterPath = movie.movie?.poster_path ?? movie.poster_path;
+
+  function handleClick(e) {
+    if (e.target.closest("details") || e.target.closest("button")) {
+      return;
+    }
+    onSelect?.(movie);
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onSelect?.(movie);
+    }
+  }
+
   return (
-    <li className="card">
-      <div className="card-head">
-        <span className="rank">{rank}</span>
-        <h3>{movie.title}</h3>
-        {year ? <span className="year">{year}</span> : null}
-        <span className="final">{typeof movie.final_score === "number" ? movie.final_score.toFixed(2) : ""}</span>
+    <li
+      className="card card-clickable"
+      tabIndex={0}
+      role="button"
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      aria-label={`View details for ${title}`}
+    >
+      <MoviePoster path={posterPath} title={title} />
+      <div className="card-body">
+        <div className="card-head">
+          <div className="card-title-group">
+            <span className="rank">{rank}</span>
+            <h3 className="card-title-link">{title}</h3>
+            {year ? <span className="year">({year})</span> : null}
+          </div>
+          {typeof movie.final_score === "number" && (
+            <span className="final">{movie.final_score.toFixed(2)}</span>
+          )}
+        </div>
+        <div className="scores">
+          <ScoreBar label="Tags" value={movie.tag_score} kind="tag" />
+          <ScoreBar label="Plot" value={movie.plot_score} kind="plot" />
+        </div>
+        {movie.explanation && <p className="explanation">{movie.explanation}</p>}
+        {overlap.length > 0 && (
+          <details onClick={(e) => e.stopPropagation()}>
+            <summary>Shared tags ({overlap.length})</summary>
+            <p className="overlap">{overlap.join(", ")}</p>
+          </details>
+        )}
+        <div className="card-action-bar">
+          <span className="card-action-text">
+            View details &amp; plot <span aria-hidden="true">&rarr;</span>
+          </span>
+        </div>
       </div>
-      <div className="scores">
-        <ScoreBar label="Tags" value={movie.tag_score} kind="tag" />
-        <ScoreBar label="Plot" value={movie.plot_score} kind="plot" />
-      </div>
-      {movie.explanation && <p className="explanation">{movie.explanation}</p>}
-      {overlap.length > 0 && (
-        <details>
-          <summary>Shared tags ({overlap.length})</summary>
-          <p className="overlap">{overlap.join(", ")}</p>
-        </details>
-      )}
     </li>
   );
 }
@@ -46,17 +72,20 @@ function Skeleton() {
     <ul className="cards" aria-busy="true" aria-label="Loading recommendations">
       {Array.from({ length: 5 }).map((_, i) => (
         <li key={i} className="card skeleton">
-          <div className="sk sk-title" />
-          <div className="sk sk-bar" />
-          <div className="sk sk-bar short" />
-          <div className="sk sk-text" />
+          <div className="sk sk-poster" />
+          <div className="card-body">
+            <div className="sk sk-title" />
+            <div className="sk sk-bar" />
+            <div className="sk sk-bar short" />
+            <div className="sk sk-text" />
+          </div>
         </li>
       ))}
     </ul>
   );
 }
 
-export default function Results({ state, query, onClearFilters, onRetry }) {
+export default function Results({ state, query, onClearFilters, onRetry, onSelectMovie }) {
   const { status, items, error } = state;
 
   if (status === "idle") {
@@ -108,7 +137,12 @@ export default function Results({ state, query, onClearFilters, onRetry }) {
       <h2 className="results-title">{items.length} recommendations</h2>
       <ul className="cards">
         {items.map((m, i) => (
-          <MovieCard key={m.id ?? i} movie={m} rank={i + 1} />
+          <MovieCard
+            key={m.id ?? m.movie_id ?? i}
+            movie={m}
+            rank={i + 1}
+            onSelect={onSelectMovie}
+          />
         ))}
       </ul>
     </>

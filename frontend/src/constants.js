@@ -1,9 +1,9 @@
 // Values are lowercase on purpose: the backend lowercases and the DB stores lowercase.
 
 export const GENRES = [
-  "action", "adventure", "animation", "comedy", "crime", "documentary",
-  "drama", "family", "fantasy", "history", "horror", "music", "mystery",
-  "romance", "science fiction", "thriller", "war", "western",
+  "Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary",
+  "Drama", "Family", "Fantasy", "History", "Horror", "Music", "Mystery",
+  "Romance", "Science Fiction", "Thriller", "War", "Western",
 ];
 
 // Must match the tag_lookup tag_type names used by the backend exactly.

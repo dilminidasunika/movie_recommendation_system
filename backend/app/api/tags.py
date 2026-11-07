@@ -7,11 +7,11 @@ from app.db.pool import get_pool
 router = APIRouter(prefix="/tags", tags=["tags"])
 
 VALID_TYPES = {
-    "genre", "original_language", "cast", "director",
-    "writer", "producer", "composer", "keyword",
-    "company", "country", "spoken_language",
+    "genres", "original_language", "cast_members", "director",
+    "writers", "producers", "music_composer", "keywords",
+    "production_companies", "production_countries", "spoken_languages",
 }
-STATIC_TYPES = {"genre", "original_language"}
+STATIC_TYPES = {"genres", "original_language"}
 
 
 class TagOut(BaseModel):

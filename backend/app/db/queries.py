@@ -5,6 +5,8 @@ from datetime import date
 
 from app.db.pool import current_pool                                    # CHANGED
 
+from psycopg.rows import dict_row
+
 POST_FILTER_BATCH = 5000
 
 
@@ -74,3 +76,34 @@ def filter_ids(ids: list[int], f: Filters) -> set[int]:
                                 [chunk, *params]).fetchall()
             keep.update(int(r["id"]) for r in rows)                     # CHANGED
     return keep
+
+
+MOVIE_COLS = """
+    id, title, original_language, release_date, genres, cast_members, director, writers, producers, music_composer,
+    keywords, production_companies, production_countries, spoken_languages,
+    overview, has_thin_overview, poster_path
+"""
+
+ARRAY_COLS = (
+    "genres", "cast_members", "director", "writers", "producers",
+    "music_composer", "keywords", "production_companies",
+    "production_countries", "spoken_languages",
+)
+
+def get_movies(ids: list[int]) -> dict[int, dict]:
+    if not ids:
+        return {}
+    with current_pool().connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(
+            f"SELECT {MOVIE_COLS} FROM movies WHERE id = ANY(%s)",
+            (list(ids),),
+        )
+        rows = cur.fetchall()
+
+    out: dict[int, dict] = {}
+    for row in rows:
+        for col in ARRAY_COLS:
+            row[col] = row[col] or []          # NULL -> [] so callers never branch
+        out[int(row["id"])] = row
+
+    return out
