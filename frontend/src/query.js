@@ -29,9 +29,20 @@ export function buildRequest(q) {
   const hasMovies = q.movies.length > 0;
   const req = { tag_weight: hasMovies ? q.tagWeight : 1.0, top_n: TOP_N };
   if (hasMovies) req.movie_ids = q.movies.map((m) => m.id);
-  if (q.tags.length) req.tags = q.tags.map((t) => ({ tag_type: t.tag_type, name: t.name }));
+
+  const tags = q.tags.map((t) => ({ tag_type: t.tag_type, name: t.name }));
+
+  if (q.genres.length) {
+    req.genres = q.genres;
+    for (const g of q.genres) {
+      if (!tags.some((t) => t.tag_type === "genres" && t.name === g)) {
+        tags.push({ tag_type: "genres", name: g });
+      }
+    }
+  }
+  if (tags.length) req.tags = tags;
+
   if (q.languages.length) req.original_language = q.languages;
-  if (q.genres.length) req.genres = q.genres;
   if (q.dateFrom) req.date_from = q.dateFrom;
   if (q.dateTo) req.date_to = q.dateTo;
   return req;
