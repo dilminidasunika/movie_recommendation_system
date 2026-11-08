@@ -2,7 +2,7 @@ import AsyncCombobox from "./AsyncCombobox";
 import ChipList from "./ChipList";
 import { searchLanguages, searchMovies, searchTags } from "../api";
 import { GENRES, TAG_LABELS, languageName } from "../constants";
-import { canSubmit, dateRangeInvalid } from "../query";
+import { canSubmit, dateRangeInvalid, getPlotTextError } from "../query";
 
 const tagKey = (t) => `${t.tag_type}:${t.name}`;
 const tagName = (t) => (t.tag_type === "spoken_languages" ? languageName(t.name) : t.name);
@@ -39,9 +39,24 @@ function ToggleGroup({ legend, options, selected, onToggle }) {
   );
 }
 
-export default function QueryPanel({ query, setQuery, onSubmit, loading }) {
+export default function QueryPanel({
+  query,
+  setQuery,
+  onSubmit,
+  loading,
+  backendErrors = {},
+  onClearBackendError,
+}) {
   const set = (patch) => setQuery((q) => ({ ...q, ...patch }));
-  const noMovies = query.movies.length === 0;
+
+  const plotText = query.plotText || "";
+  const charCount = plotText.length;
+  const collapsedPlot = plotText.trim().replace(/\s+/g, " ");
+  const inlinePlotError = getPlotTextError(plotText);
+  const backendPlotError = backendErrors.plot_text;
+
+  const hasPlotQuery = query.movies.length > 0 || collapsedPlot.length > 0;
+  const noPlotQuery = !hasPlotQuery;
   const tagPct = Math.round(query.tagWeight * 100);
   const badRange = dateRangeInvalid(query);
 
@@ -77,6 +92,34 @@ export default function QueryPanel({ query, setQuery, onSubmit, loading }) {
           getLabel={(m) => (movieYear(m) ? `${m.title} (${movieYear(m)})` : m.title)}
           onRemove={(m) => set({ movies: query.movies.filter((x) => x.id !== m.id) })}
         />
+      </div>
+
+      <div className="field">
+        <div className="field-header">
+          <label htmlFor="plot-text">Describe the plot you want (optional)</label>
+          <span className={`char-counter ${charCount > 1000 ? "error" : ""}`}>
+            {charCount}/1000
+          </span>
+        </div>
+        <textarea
+          id="plot-text"
+          rows={3}
+          placeholder="e.g. A retired detective is drawn into one last case when an enigmatic code surfaces..."
+          value={plotText}
+          onChange={(e) => {
+            set({ plotText: e.target.value });
+            if (backendPlotError && onClearBackendError) {
+              onClearBackendError("plot_text");
+            }
+          }}
+        />
+        {backendPlotError ? (
+          <p className="note error">{backendPlotError}</p>
+        ) : inlinePlotError ? (
+          <p className="note error">{inlinePlotError}</p>
+        ) : (
+          <p className="note">Minimum 30 characters when specified.</p>
+        )}
       </div>
 
       <div className="field">
@@ -170,8 +213,8 @@ export default function QueryPanel({ query, setQuery, onSubmit, loading }) {
           min="0"
           max="1"
           step="0.05"
-          value={noMovies ? 1 : query.tagWeight}
-          disabled={noMovies}
+          value={noPlotQuery ? 1 : query.tagWeight}
+          disabled={noPlotQuery}
           onChange={(e) => set({ tagWeight: Number(e.target.value) })}
         />
         <div className="slider-labels">
@@ -179,8 +222,8 @@ export default function QueryPanel({ query, setQuery, onSubmit, loading }) {
           <span>Tags</span>
         </div>
         <p className="note">
-          {noMovies
-            ? "Tags only. Pick at least one movie to compare plots."
+          {noPlotQuery
+            ? "Tags only. Pick at least one movie or describe a plot to compare plots."
             : `${tagPct}% tags, ${100 - tagPct}% plot`}
         </p>
       </div>
@@ -188,8 +231,8 @@ export default function QueryPanel({ query, setQuery, onSubmit, loading }) {
       <button className="primary" type="submit" disabled={!canSubmit(query) || loading}>
         {loading ? "Finding movies…" : "Find movies"}
       </button>
-      {!canSubmit(query) && !badRange && (
-        <p className="note">Add at least one movie or tag to start.</p>
+      {!canSubmit(query) && !badRange && !inlinePlotError && (
+        <p className="note">Add at least one movie, tag, or plot description to start.</p>
       )}
     </form>
   );

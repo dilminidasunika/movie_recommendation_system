@@ -9,7 +9,7 @@ import scipy.sparse as sp
 from sklearn.preprocessing import normalize
 
 from app.schemas import RecommendRequest
-from app.stores import artifacts, chroma
+from app.stores import artifacts, chroma, text_embedder
 from app.services.soup import build_tier_docs
 
 CHIP_WEIGHT = 1.0   # relative weight of the tag-chip part vs the movie part
@@ -23,11 +23,12 @@ class EmptyQueryError(ValueError):
 class Query:
     tag_sparse: sp.csr_matrix | None      # (1, V) L2-normalized, exact scoring
     tag_ann: np.ndarray | None            # (n_components,) float32 L2-normalized, ANN
-    plot_centroid: np.ndarray | None      # (384,) float32 L2-normalized
+    plot_centroid: np.ndarray | None      # (384,) float32 L2-normalized plot query vector
     movie_ids: list[int]
     chips: list[dict]
     missing_tag_ids: list[int] = field(default_factory=list)    # selected movies with no tag row
     missing_plot_ids: list[int] = field(default_factory=list)   # selected movies with no plot embedding
+    plot_text: str | None = None
 
 
 def _movie_tag_part(movie_ids: list[int]):
@@ -92,20 +93,34 @@ def build(req: RecommendRequest) -> Query:
         red = artifacts.svd().transform(tag_sparse)               # (1, n_components)
         tag_ann = normalize(red, norm="l2")[0].astype(np.float32)
 
-    plot_centroid, missing_plot = _plot_centroid(movie_ids)
+    movie_centroid, missing_plot = _plot_centroid(movie_ids)
 
-    if tag_sparse is None and plot_centroid is None:
+    text_emb = None
+    if req.plot_text:
+        text_emb = text_embedder.embed_plot_text(req.plot_text)
+
+    plot_query = None
+    if text_emb is not None and movie_centroid is not None:
+        combo = 0.5 * text_emb + 0.5 * movie_centroid
+        plot_query = normalize(combo.reshape(1, -1), norm="l2")[0].astype(np.float32)
+    elif text_emb is not None:
+        plot_query = text_emb
+    elif movie_centroid is not None:
+        plot_query = movie_centroid
+
+    if tag_sparse is None and plot_query is None:
         raise EmptyQueryError(
-            "No usable signal: selected movies have no tags/plot data "
-            "and the tag chips matched nothing in the vocabulary."
+            "No usable signal: selected movies have no tags/plot data, "
+            "no plot text was provided, and the tag chips matched nothing in the vocabulary."
         )
 
     return Query(
         tag_sparse=tag_sparse,
         tag_ann=tag_ann,
-        plot_centroid=plot_centroid,
+        plot_centroid=plot_query,
         movie_ids=movie_ids,
         chips=chips,
         missing_tag_ids=missing_tag,
         missing_plot_ids=missing_plot,
+        plot_text=req.plot_text,
     )

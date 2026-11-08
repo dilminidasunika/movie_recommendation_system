@@ -14,6 +14,7 @@ class TagIn(BaseModel):
 class RecommendRequest(BaseModel):
     movie_ids: list[int] = Field(default_factory=list)
     tags: list[TagIn] = Field(default_factory=list)
+    plot_text: str | None = None
     original_language: list[str] = Field(default_factory=list)
     genres: list[str] = Field(default_factory=list)
     date_from: date | None = None
@@ -25,14 +26,30 @@ class RecommendRequest(BaseModel):
     @classmethod
     def lower(cls, v): return [x.strip().lower() for x in v]
 
+    @field_validator("plot_text", mode="before")
+    @classmethod
+    def validate_plot_text(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("plot_text must be a string")
+        collapsed = " ".join(v.split())
+        if not collapsed:
+            return None
+        if len(collapsed) < 30:
+            raise ValueError("Plot text must be at least 30 characters")
+        if len(collapsed) > 1000:
+            raise ValueError("Plot text must not exceed 1000 characters")
+        return collapsed
+
     @model_validator(mode="after")
     def check(self):
-        if not self.movie_ids and not self.tags:
-            raise ValueError("Provide at least one of movie_ids or tags")
+        if not self.movie_ids and not self.tags and not self.plot_text:
+            raise ValueError("Provide at least one of movie_ids, tags, or plot_text")
         if self.date_from and self.date_to and self.date_from > self.date_to:
             raise ValueError("date_from must be <= date_to")
-        if not self.movie_ids:
-            self.tag_weight = 1.0  # no plot centroid exists
+        if not self.movie_ids and not self.plot_text:
+            self.tag_weight = 1.0  # no plot query exists
         return self
 
     @property

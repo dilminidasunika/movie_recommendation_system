@@ -6,7 +6,7 @@ from psycopg_pool import ConnectionPool
 
 from app.config import settings
 from app.db.pool import get_pool, open_pool, close_pool
-from app.stores import artifacts, chroma
+from app.stores import artifacts, chroma, text_embedder
 from app.api import movies, tags, recommend
 
 @asynccontextmanager
@@ -15,6 +15,7 @@ async def lifespan(app: FastAPI):
     artifacts.load_all()
     chroma.get_collection(settings.plots_collection)
     chroma.get_collection(settings.tags_collection)
+    text_embedder.get_sentence_transformer()
     yield
     close_pool()
 

@@ -72,6 +72,7 @@ export default function App() {
   });
 
   const [query, setQuery] = useState(INITIAL_QUERY);
+  const [backendErrors, setBackendErrors] = useState({});
   const [state, setState] = useState(() => {
     // If we have cached results in session, initialize with them
     const cached = getResultsFromCache();
@@ -147,6 +148,7 @@ export default function App() {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    setBackendErrors({});
     setState({ status: "loading", items: [], error: "" });
 
     if (window.matchMedia("(max-width: 900px)").matches) {
@@ -159,6 +161,9 @@ export default function App() {
       saveResultsToCache(items);
     } catch (err) {
       if (isAbort(err)) return;
+      if (err.fieldErrors) {
+        setBackendErrors(err.fieldErrors);
+      }
       setState({ status: "error", items: [], error: err.message || "Something went wrong." });
     }
   }
@@ -208,6 +213,14 @@ export default function App() {
             setQuery={setQuery}
             onSubmit={submit}
             loading={state.status === "loading"}
+            backendErrors={backendErrors}
+            onClearBackendError={(field) =>
+              setBackendErrors((prev) => {
+                const next = { ...prev };
+                delete next[field];
+                return next;
+              })
+            }
           />
           <section className="results" ref={resultsRef} aria-live="polite">
             <Results
