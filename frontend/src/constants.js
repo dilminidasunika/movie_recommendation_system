@@ -2,7 +2,7 @@
 
 export const GENRES = [
   "Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary",
-  "Drama", "Family", "Fantasy", "History", "Horror", "Music", "Mystery",
+  "Drama", "Family", "TV Movie", "Fantasy", "History", "Horror", "Music", "Mystery",
   "Romance", "Science Fiction", "Thriller", "War", "Western",
 ];
 
@@ -15,7 +15,6 @@ export const TAG_LABELS = {
   producers: "Producer",
   music_composer: "Composer",
   keywords: "Keyword",
-  production_companies: "Company",
   production_countries: "Country",
   spoken_languages: "Spoken language",
 };

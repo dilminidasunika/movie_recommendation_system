@@ -16,11 +16,12 @@ const http = axios.create({
 // kind: network | timeout | unavailable | server | client | not_found | rate_limit | bad_response
 // ---------------------------------------------------------------------------
 export class ApiError extends Error {
-  constructor(message, { kind = "server", status } = {}) {
+  constructor(message, { kind = "server", status, fieldErrors = {} } = {}) {
     super(message);
     this.name = "ApiError";
     this.kind = kind;
     this.status = status;
+    this.fieldErrors = fieldErrors;
   }
 }
 
@@ -51,13 +52,24 @@ function toApiError(err) {
   }
   const { status, data } = err.response;
   const detail = readDetail(data);
-  if (status === 404) return new ApiError(detail || "Endpoint not found. Check the backend routes.", { kind: "not_found", status });
-  if (status === 429) return new ApiError("Too many requests. Wait a moment and try again.", { kind: "rate_limit", status });
-  if (status === 400 || status === 422) return new ApiError(detail ? `Invalid request: ${detail}` : "Invalid request.", { kind: "client", status });
-  if (status === 502 || status === 503 || status === 504) {
-    return new ApiError("The server is not responding. Is the backend running?", { kind: "unavailable", status });
+
+  const fieldErrors = {};
+  if (Array.isArray(data?.detail)) {
+    for (const item of data.detail) {
+      const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : "";
+      if (field) {
+        fieldErrors[field] = item.msg.replace(/^Value error,\s*/i, "");
+      }
+    }
   }
-  return new ApiError(detail || `Server error (${status}).`, { kind: "server", status });
+
+  if (status === 404) return new ApiError(detail || "Endpoint not found. Check the backend routes.", { kind: "not_found", status, fieldErrors });
+  if (status === 429) return new ApiError("Too many requests. Wait a moment and try again.", { kind: "rate_limit", status, fieldErrors });
+  if (status === 400 || status === 422) return new ApiError(detail ? `Invalid request: ${detail}` : "Invalid request.", { kind: "client", status, fieldErrors });
+  if (status === 502 || status === 503 || status === 504) {
+    return new ApiError("The server is not responding. Is the backend running?", { kind: "unavailable", status, fieldErrors });
+  }
+  return new ApiError(detail || `Server error (${status}).`, { kind: "server", status, fieldErrors });
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

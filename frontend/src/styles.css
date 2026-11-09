@@ -756,3 +756,40 @@ details summary { cursor: pointer; color: var(--accent); font-size: 0.9rem; }
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* Plot text field */
+.field-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.field-header > label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.char-counter {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.char-counter.error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+textarea {
+  width: 100%;
+  font: inherit;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.4;
+}
+textarea:focus {
+  border-color: var(--accent);
+}

@@ -34,13 +34,17 @@ def score(pool_ids: list[int], q) -> Scores:
             pos = np.asarray(pos)
             tag[pos], tag_ok[pos] = sims, valid
 
-    # Exact plot cosine: stored embeddings are normalized, so dot == cosine
+    # Exact plot cosine: embeddings are normalized, so normalize the centroid too
     if q.plot_centroid is not None:
-        embs = chroma.get_plot_embeddings(pool_ids)    # batched; missing ids simply absent
-        if embs:
-            pos = [k for k, i in enumerate(pool_ids) if i in embs]
-            mat = np.stack([embs[pool_ids[k]] for k in pos])
-            plot[pos] = mat @ q.plot_centroid
-            plot_ok[pos] = True
+        c = np.asarray(q.plot_centroid, dtype=float)
+        cn = np.linalg.norm(c)
+        if cn > 0:
+            c = c / cn                                  # mean of unit vectors is not unit
+            embs = chroma.get_plot_embeddings(pool_ids) # missing ids simply absent
+            if embs:
+                pos = [k for k, i in enumerate(pool_ids) if i in embs]
+                mat = np.stack([embs[pool_ids[k]] for k in pos])
+                plot[pos] = mat @ c
+                plot_ok[pos] = True
 
     return Scores(pool_ids, tag, plot, tag_ok, plot_ok)
