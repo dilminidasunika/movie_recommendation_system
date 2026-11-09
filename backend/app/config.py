@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     exact_limit: int = 50_000
     ann_k: int = 2000
     pool_cap: int = 2000
+    max_results: int = 200
 
     gemini_api_key: str = Field(validation_alias="GEMINI_API_KEY")
     gemini_model: str = "gemini-2.5-flash"   # check AI Studio for the current model id

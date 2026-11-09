@@ -81,3 +81,6 @@ class RecommendResponse(BaseModel):
     warnings: list[str] = []
     pool_size: int
     timings: dict[str, float] | None = None
+    request_id: str | None = None
+    total: int = 0
+    next_offset: int | None = None

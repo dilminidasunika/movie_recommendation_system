@@ -173,7 +173,21 @@ export async function recommend(body, signal) {
   console.log("Calling /recommend with body:", body);
   const data = await call({ url: "/recommend", method: "POST", data: body, signal, timeout: 120_000 });
   console.log("Response from /recommend:", data);
-  return list(data, "results", "recommendations");
+  return {
+    items: list(data, "results", "recommendations"),
+    requestId: data.request_id ?? null,
+    total: data.total ?? 0,
+  };
+}
+
+export async function recommendPage(requestId, offset, limit = 20, signal) {
+  const data = await call({ url: `/recommend/${requestId}`, params: { offset, limit }, signal, timeout: 30_000 });
+  return { items: list(data, "results"), total: data.total ?? 0 };
+}
+
+export async function recommendExplanations(requestId, offset, limit = 20, signal) {
+  const data = await call({ url: `/recommend/${requestId}/explanations`, params: { offset, limit }, signal, timeout: 60_000 });
+  return data.explanations ?? {};   // { "<movie_id>": "text" }
 }
 
 
