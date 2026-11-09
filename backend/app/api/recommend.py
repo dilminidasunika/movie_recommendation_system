@@ -2,7 +2,7 @@ import asyncio
 import logging
 from collections import defaultdict
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.db import queries
 from app.schemas import RecommendRequest, RecommendResponse
@@ -16,7 +16,11 @@ router = APIRouter()
 def _require(rid: str) -> dict:
     entry = paging.get(rid)
     if entry is None:
-        raise HTTPException(410, "Recommendations expired. Please search again.")
+        raise HTTPException(
+            410,
+            "Recommendations expired. Please search again.",
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
+        )
     return entry
 
 
@@ -44,7 +48,8 @@ async def _page(rid: str, entry: dict, offset: int, limit: int) -> dict:
 
 
 @router.post("/recommend", response_model=RecommendResponse)
-async def recommend(req: RecommendRequest):
+async def recommend(req: RecommendRequest, response: Response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     rid = paging.request_id(req)
     entry = paging.get(rid)
     if entry is None:
@@ -62,15 +67,19 @@ async def recommend(req: RecommendRequest):
 
 @router.get("/recommend/{request_id}", response_model=RecommendResponse)
 async def recommend_page(request_id: str,
+                         response: Response,
                          offset: int = Query(0, ge=0),
                          limit: int = Query(20, ge=1, le=50)):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return await _page(request_id, _require(request_id), offset, limit)
 
 
 @router.get("/recommend/{request_id}/explanations")
 async def recommend_explanations(request_id: str,
+                                 response: Response,
                                  offset: int = Query(0, ge=0),
                                  limit: int = Query(20, ge=1, le=50)):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     entry = _require(request_id)
     page = entry["ranked"][offset: offset + limit]
     ids = [r["movie_id"] for r in page]

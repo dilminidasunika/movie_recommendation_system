@@ -202,6 +202,11 @@ export default function App() {
       }));
     } catch (err) {
       if (err.status === 410) {
+        try {
+          sessionStorage.removeItem(RESULTS_KEY);
+        } catch {
+          /* ignore */
+        }
         await submit();
         return;
       }
@@ -225,6 +230,11 @@ export default function App() {
       loadExplanations(p, state.requestId, r.items);
     } catch (err) {
       if (err.status === 410) {
+        try {
+          sessionStorage.removeItem(RESULTS_KEY);
+        } catch {
+          /* ignore */
+        }
         await submit();
         return;
       } // cache expired: rebuild from page 1
