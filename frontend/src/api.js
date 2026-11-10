@@ -170,7 +170,9 @@ export async function searchLanguages(q, signal) {
 // POST /api/recommend  ->  { results: [...] }
 // Long timeout (LLM explanations), no retry (expensive), never cached.
 export async function recommend(body, signal) {
+  console.log("Calling /recommend with body:", body);
   const data = await call({ url: "/recommend", method: "POST", data: body, signal, timeout: 120_000 });
+  console.log("Response from /recommend:", data);
   return {
     items: list(data, "results", "recommendations"),
     requestId: data.request_id ?? null,
