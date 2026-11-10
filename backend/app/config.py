@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     )
 
     database_url: str = Field(validation_alias="DATABASE_URL")
+    app_env: str = Field("dev", validation_alias="APP_ENV")
+    allowed_hosts: list[str] = Field(default_factory=lambda: ["localhost", "127.0.0.1"], validation_alias="ALLOWED_HOSTS")
     artifacts_dir: str = "artifacts"
     artifact_version: str = "v1"
     chroma_dir: str = "chroma_data"

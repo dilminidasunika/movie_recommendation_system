@@ -1,0 +1,19 @@
+{$SITE_ADDRESS:localhost} {
+    request_body {
+        max_size 16KB
+    }
+    handle /api/* {
+        reverse_proxy backend:8000
+    }
+    handle {
+        root * /srv/frontend
+        try_files {path} /index.html
+        file_server
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        X-Frame-Options DENY
+    }
+}

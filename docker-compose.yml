@@ -7,8 +7,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "15432:5432"
+    # Direct host port removed for security. Use `docker compose exec database psql` for access.
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
@@ -16,6 +15,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   backend:
     build: ./backend
@@ -29,12 +33,45 @@ services:
       ARTIFACTS_DIR: /artifacts
       CHROMA_DIR: /chroma_data
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-    ports:
-      - "8000:8000"
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:5173"]}
+      APP_ENV: ${APP_ENV:-dev}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-["localhost","127.0.0.1"]}
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+    expose:
+      - "8000"
     volumes:
       - ./backend/artifacts:/artifacts:ro
       - chroma_data:/chroma_data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  proxy:
+    image: caddy:2
+    container_name: movies_proxy
+    restart: unless-stopped
+    profiles:
+      - "prod"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./frontend/dist:/srv/frontend:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   pgdata:
   chroma_data:
+  caddy_data:
+  caddy_config:
