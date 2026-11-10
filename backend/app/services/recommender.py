@@ -1,4 +1,5 @@
 import time
+from app.config import settings
 from app.schemas import RecommendRequest
 from app.services import query_builder, candidates, scoring, fusion
 
@@ -32,7 +33,7 @@ def retrieve_and_rank(req: RecommendRequest) -> dict:
     s = scoring.score(pool_ids, q)
     lap("scoring")
 
-    ranked = fusion.fuse(s, req.tag_weight, top_n=req.top_n)
+    ranked = fusion.fuse(s, req.tag_weight, top_n=settings.max_results)
     lap("fusion")
 
     return {"ranked": ranked, "pool_size": len(pool_ids), "warnings": warnings,

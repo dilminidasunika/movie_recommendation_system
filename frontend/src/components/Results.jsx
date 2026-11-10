@@ -1,10 +1,11 @@
 import { hasFilters } from "../query";
 import MoviePoster from "./MoviePoster";
 import ScoreBar from "./ScoreBar";
+import Pagination from "./Pagination";
 
 const tagName = (t) => (typeof t === "string" ? t : t?.name ?? "");
 
-function MovieCard({ movie, rank, onSelect }) {
+function MovieCard({ movie, rank, explaining, onSelect }) {
   const overlap = (movie.overlapping_tags ?? []).map(tagName).filter(Boolean);
   const title = movie.movie?.title ?? movie.title ?? "Untitled";
   const rawYear = movie.movie?.release_date ? movie.movie.release_date.slice(0, 4) : null;
@@ -50,7 +51,9 @@ function MovieCard({ movie, rank, onSelect }) {
           <ScoreBar label="Tags" value={movie.tag_score} kind="tag" />
           <ScoreBar label="Plot" value={movie.plot_score} kind="plot" />
         </div>
-        {movie.explanation && <p className="explanation">{movie.explanation}</p>}
+        {movie.explanation
+          ? <p className="explanation">{movie.explanation}</p>
+          : explaining ? <div className="sk sk-text" /> : null}
         {overlap.length > 0 && (
           <details onClick={(e) => e.stopPropagation()}>
             <summary>Shared tags ({overlap.length})</summary>
@@ -85,8 +88,17 @@ function Skeleton() {
   );
 }
 
-export default function Results({ state, query, onClearFilters, onRetry, onSelectMovie }) {
-  const { status, items, error } = state;
+export default function Results({
+  state,
+  query,
+  onClearFilters,
+  onRetry,
+  onSelectMovie,
+  onPageChange,
+}) {
+  const { status, error, pages, page, total, pageLoading, explaining } = state;
+  const items = pages?.[page] ?? [];
+  const totalPages = Math.ceil((total || 0) / 20);
 
   if (status === "idle") {
     return (
@@ -114,7 +126,7 @@ export default function Results({ state, query, onClearFilters, onRetry, onSelec
     );
   }
 
-  if (items.length === 0) {
+  if (total === 0) {
     return (
       <div className="empty">
         <h2>No movies match</h2>
@@ -134,17 +146,21 @@ export default function Results({ state, query, onClearFilters, onRetry, onSelec
 
   return (
     <>
-      <h2 className="results-title">{items.length} recommendations</h2>
-      <ul className="cards">
-        {items.map((m, i) => (
-          <MovieCard
-            key={m.id ?? m.movie_id ?? i}
-            movie={m}
-            rank={i + 1}
-            onSelect={onSelectMovie}
-          />
-        ))}
-      </ul>
+      <h2 className="results-title">{total} recommendations · page {page} of {totalPages}</h2>
+      {pageLoading ? <Skeleton /> : (
+        <ul className="cards">
+          {items.map((m, i) => (
+            <MovieCard
+              key={m.movie_id}
+              movie={m}
+              rank={(page - 1) * 20 + i + 1}
+              explaining={explaining?.[page]}
+              onSelect={onSelectMovie}
+            />
+          ))}
+        </ul>
+      )}
+      <Pagination page={page} totalPages={totalPages} onChange={onPageChange} disabled={pageLoading} />
     </>
   );
 }

@@ -280,7 +280,7 @@ details summary { cursor: pointer; color: var(--accent); font-size: 0.9rem; }
 .card-body .sk-bar.short { width: 40%; }
 .card-body .sk-text { height: 14px; width: 90%; }
 @media (prefers-reduced-motion: no-preference) {
-  .skeleton .sk { animation: pulse 1.2s ease-in-out infinite; }
+  .skeleton .sk, .card-body .sk { animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: 0.45; } }
 }
 
@@ -793,3 +793,51 @@ textarea {
 textarea:focus {
   border-color: var(--accent);
 }
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.pagination button {
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 8px 14px;
+  min-width: 38px;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.pagination button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pagination button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.pagination button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pagination span[aria-hidden="true"] {
+  padding: 0 4px;
+  color: var(--muted);
+  user-select: none;
+}
+
