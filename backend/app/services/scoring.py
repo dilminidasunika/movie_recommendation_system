@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 import numpy as np
 
 from app.stores import artifacts, chroma
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -15,12 +19,13 @@ class Scores:
     plot_ok: np.ndarray
 
 
-def score(pool_ids: list[int], q) -> Scores:
+def score(pool_ids: list[int], q, timings: dict | None = None) -> Scores:
     n = len(pool_ids)
     tag, plot = np.zeros(n), np.zeros(n)
     tag_ok, plot_ok = np.zeros(n, bool), np.zeros(n, bool)
 
     # Exact tag cosine on the SPARSE matrix (never the SVD space)
+    t0 = time.perf_counter()
     if q.tag_sparse is not None:
         i2r = artifacts.id_to_row()
         pos = [k for k, i in enumerate(pool_ids) if i in i2r]
@@ -33,8 +38,13 @@ def score(pool_ids: list[int], q) -> Scores:
             sims[valid] = dots[valid] / norms[valid]   # q is already unit norm
             pos = np.asarray(pos)
             tag[pos], tag_ok[pos] = sims, valid
+    score_tag_time = round(time.perf_counter() - t0, 4)
+    if timings is not None:
+        timings["score_tag"] = score_tag_time
+    log.debug("timing score_tag=%.4fs", score_tag_time)
 
     # Exact plot cosine: embeddings are normalized, so normalize the centroid too
+    t0 = time.perf_counter()
     if q.plot_centroid is not None:
         c = np.asarray(q.plot_centroid, dtype=float)
         cn = np.linalg.norm(c)
@@ -46,5 +56,9 @@ def score(pool_ids: list[int], q) -> Scores:
                 mat = np.stack([embs[pool_ids[k]] for k in pos])
                 plot[pos] = mat @ c
                 plot_ok[pos] = True
+    score_plot_time = round(time.perf_counter() - t0, 4)
+    if timings is not None:
+        timings["score_plot"] = score_plot_time
+    log.debug("timing score_plot=%.4fs", score_plot_time)
 
     return Scores(pool_ids, tag, plot, tag_ok, plot_ok)

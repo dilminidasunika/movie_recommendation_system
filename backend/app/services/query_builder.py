@@ -1,6 +1,8 @@
 # app/services/query_builder.py
 from __future__ import annotations
 
+import logging
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -11,6 +13,8 @@ from sklearn.preprocessing import normalize
 from app.schemas import RecommendRequest
 from app.stores import artifacts, chroma, text_embedder
 from app.services.soup import build_tier_docs
+
+log = logging.getLogger(__name__)
 
 CHIP_WEIGHT = 1.0   # relative weight of the tag-chip part vs the movie part
 
@@ -72,10 +76,12 @@ def _plot_centroid(movie_ids: list[int]):
     return c, missing
 
 
-def build(req: RecommendRequest) -> Query:
+def build(req: RecommendRequest, timings: dict | None = None) -> Query:
     movie_ids = list(dict.fromkeys(req.movie_ids))                # dedupe, keep order
     chips = [{"tag_type": t.tag_type, "name": t.name} for t in req.tags]
 
+    # tag_part: movie sparse mean + chips + SVD transform
+    t0 = time.perf_counter()
     movie_part, missing_tag = _movie_tag_part(movie_ids)
     chip_part = _chip_part(chips)
 
@@ -92,12 +98,28 @@ def build(req: RecommendRequest) -> Query:
     if tag_sparse is not None:
         red = artifacts.svd().transform(tag_sparse)               # (1, n_components)
         tag_ann = normalize(red, norm="l2")[0].astype(np.float32)
+    tag_time = round(time.perf_counter() - t0, 4)
+    if timings is not None:
+        timings["tag_part"] = tag_time
+    log.debug("timing tag_part=%.4fs", tag_time)
 
+    # plot_centroid
+    t0 = time.perf_counter()
     movie_centroid, missing_plot = _plot_centroid(movie_ids)
+    centroid_time = round(time.perf_counter() - t0, 4)
+    if timings is not None:
+        timings["plot_centroid"] = centroid_time
+    log.debug("timing plot_centroid=%.4fs", centroid_time)
 
+    # embed_plot_text
+    t0 = time.perf_counter()
     text_emb = None
     if req.plot_text:
         text_emb = text_embedder.embed_plot_text(req.plot_text)
+    plot_text_time = round(time.perf_counter() - t0, 4)
+    if timings is not None:
+        timings["embed_plot_text"] = plot_text_time
+    log.debug("timing embed_plot_text=%.4fs", plot_text_time)
 
     plot_query = None
     if text_emb is not None and movie_centroid is not None:
