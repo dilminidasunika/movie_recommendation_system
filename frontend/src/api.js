@@ -5,7 +5,7 @@ import { TAG_TYPES, codesMatchingName } from "./constants";
 // Client. Vite proxies /api to http://localhost:8000 (see vite.config.js).
 // ---------------------------------------------------------------------------
 const http = axios.create({
-  baseURL: "http://localhost:8000/api",
+  baseURL: import.meta.env.VITE_API_BASE || "/api",
   timeout: 10_000, // searches; /recommend overrides this because of the LLM call
   headers: { "Content-Type": "application/json" },
 });
@@ -66,7 +66,10 @@ function toApiError(err) {
   if (status === 404) return new ApiError(detail || "Endpoint not found. Check the backend routes.", { kind: "not_found", status, fieldErrors });
   if (status === 429) return new ApiError("Too many requests. Wait a moment and try again.", { kind: "rate_limit", status, fieldErrors });
   if (status === 400 || status === 422) return new ApiError(detail ? `Invalid request: ${detail}` : "Invalid request.", { kind: "client", status, fieldErrors });
-  if (status === 502 || status === 503 || status === 504) {
+  if (status === 503) {
+    return new ApiError(detail || "Server busy, try again shortly.", { kind: "unavailable", status, fieldErrors });
+  }
+  if (status === 502 || status === 504) {
     return new ApiError("The server is not responding. Is the backend running?", { kind: "unavailable", status, fieldErrors });
   }
   return new ApiError(detail || `Server error (${status}).`, { kind: "server", status, fieldErrors });

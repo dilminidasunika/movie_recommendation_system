@@ -2,10 +2,12 @@ import asyncio
 import logging
 from collections import defaultdict
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 
+from app.config import settings
 from app.db import queries
 from app.schemas import RecommendRequest, RecommendResponse
+from app.security import LLM_SEM, PIPELINE_SEM, limiter, slot
 from app.services import explain, paging, recommender
 from app.services.query_builder import EmptyQueryError
 
@@ -48,13 +50,15 @@ async def _page(rid: str, entry: dict, offset: int, limit: int) -> dict:
 
 
 @router.post("/recommend", response_model=RecommendResponse)
-async def recommend(req: RecommendRequest, response: Response):
+@limiter.limit("10/minute;100/hour")
+async def recommend(request: Request, req: RecommendRequest, response: Response):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     rid = paging.request_id(req)
     entry = paging.get(rid)
     if entry is None:
         try:
-            out = await asyncio.to_thread(recommender.retrieve_and_rank, req)
+            async with slot(PIPELINE_SEM):
+                out = await asyncio.to_thread(recommender.retrieve_and_rank, req)
         except EmptyQueryError as e:
             raise HTTPException(422, str(e))
         entry = {"req": req, "ranked": out["ranked"], "query": out["query"],
@@ -66,19 +70,25 @@ async def recommend(req: RecommendRequest, response: Response):
 
 
 @router.get("/recommend/{request_id}", response_model=RecommendResponse)
-async def recommend_page(request_id: str,
+@limiter.limit("60/minute")
+async def recommend_page(request: Request,
+                         request_id: str,
                          response: Response,
-                         offset: int = Query(0, ge=0),
+                         offset: int = Query(0, ge=0, lt=settings.max_results),
                          limit: int = Query(20, ge=1, le=50)):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return await _page(request_id, _require(request_id), offset, limit)
 
 
 @router.get("/recommend/{request_id}/explanations")
-async def recommend_explanations(request_id: str,
+@limiter.limit("6/minute")
+async def recommend_explanations(request: Request,
+                                 request_id: str,
                                  response: Response,
-                                 offset: int = Query(0, ge=0),
+                                 offset: int = Query(0, ge=0, lt=settings.max_results),
                                  limit: int = Query(20, ge=1, le=50)):
+    if offset % 20 != 0:
+        raise HTTPException(422, "offset must be a multiple of 20")
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     entry = _require(request_id)
     page = entry["ranked"][offset: offset + limit]
@@ -91,7 +101,13 @@ async def recommend_explanations(request_id: str,
             movies = await asyncio.to_thread(queries.get_movies, [r["movie_id"] for r in todo])
             todo = [r for r in todo if r["movie_id"] in movies]
             try:
-                expl.update(await explain.explain(todo, movies, entry["query"], entry["req"]))
+                async with slot(LLM_SEM, wait_s=8):
+                    expl.update(await explain.explain(todo, movies, entry["query"], entry["req"]))
+            except HTTPException as e:
+                if e.status_code == 503:
+                    log.warning("LLM slot busy (503): %s", e.detail)
+                else:
+                    raise
             except Exception:
                 log.exception("explain failed")   # failures are NOT cached, so a revisit retries
 

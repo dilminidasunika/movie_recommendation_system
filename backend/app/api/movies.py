@@ -1,9 +1,8 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from psycopg_pool import ConnectionPool
 from pydantic import BaseModel
-from app.db import queries
-from fastapi import HTTPException
 
+from app.db import queries
 from app.db.pool import get_pool
 
 router = APIRouter(prefix="/movies", tags=["movies"])
@@ -54,7 +53,7 @@ def search_movies(
         return conn.execute(MOVIE_SEARCH_SQL, params).fetchall()
 
 @router.get('/{movie_id}', response_model=dict)
-def get_movie(movie_id: int):
+def get_movie(movie_id: int = Path(..., ge=1)):
     movies = queries.get_movies([movie_id])
     if movie_id not in movies:
         raise HTTPException(status_code=404, detail='Movie not found')

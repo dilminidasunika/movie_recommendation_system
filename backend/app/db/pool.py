@@ -13,6 +13,7 @@ def open_pool() -> ConnectionPool:
         settings.database_url,
         min_size=2,
         max_size=10,
+        timeout=5,
         kwargs={"row_factory": dict_row},
         open=False,
     )

@@ -9,14 +9,14 @@ TagType = Literal[
 
 class TagIn(BaseModel):
     tag_type: TagType
-    name: str
+    name: str = Field(min_length=1, max_length=100)
 
 class RecommendRequest(BaseModel):
-    movie_ids: list[int] = Field(default_factory=list)
-    tags: list[TagIn] = Field(default_factory=list)
+    movie_ids: list[int] = Field(default_factory=list, max_length=20)
+    tags: list[TagIn] = Field(default_factory=list, max_length=30)
     plot_text: str | None = None
-    original_language: list[str] = Field(default_factory=list)
-    genres: list[str] = Field(default_factory=list)
+    original_language: list[str] = Field(default_factory=list, max_length=10)
+    genres: list[str] = Field(default_factory=list, max_length=10)
     date_from: date | None = None
     date_to: date | None = None
     tag_weight: float = Field(0.5, ge=0, le=1)
@@ -24,7 +24,22 @@ class RecommendRequest(BaseModel):
 
     @field_validator("original_language")
     @classmethod
-    def lower(cls, v): return [x.strip().lower() for x in v]
+    def lower(cls, v):
+        res = []
+        for x in v:
+            s = x.strip().lower()
+            if len(s) > 50:
+                raise ValueError("Language item must not exceed 50 characters")
+            res.append(s)
+        return res
+
+    @field_validator("genres")
+    @classmethod
+    def validate_genres(cls, v):
+        for x in v:
+            if len(x.strip()) > 50:
+                raise ValueError("Genre item must not exceed 50 characters")
+        return v
 
     @field_validator("plot_text", mode="before")
     @classmethod

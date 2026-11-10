@@ -11,7 +11,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app ./app
 COPY scripts ./scripts
 
+# TODO: run as non-root after fixing chroma_data volume ownership
+
 # Entrypoint: init ChromaDB on first run, then start the server
+# Note: uvicorn reads FORWARDED_ALLOW_IPS from the environment directly.
+# In production, FORWARDED_ALLOW_IPS must be configured to the reverse proxy's
+# IP/subnet and never "*" while the backend port is reachable.
 RUN printf '#!/bin/sh\npython -m scripts.init_chroma\nexec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1\n' > /srv/entrypoint.sh \
     && chmod +x /srv/entrypoint.sh
 
