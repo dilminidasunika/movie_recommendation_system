@@ -13,7 +13,7 @@ def fuse(s, tag_weight: float, top_n: int) -> list[dict]:
     final = tag_weight * tn + (1 - tag_weight) * pn
 
     final[~(s.tag_ok | s.plot_ok)] = -1.0             # neither signal: drop
-    order = np.argsort(-final, kind="stable")[:top_n]
+    order = np.lexsort((np.asarray(s.ids), -final))[:top_n]
     return [
         {
             "movie_id": s.ids[i],

@@ -2420,12 +2420,6 @@
       "pool_size": 6134,
       "ranked": [
         {
-          "movie_id": 1013411,
-          "final_score": 1.0,
-          "tag_score": 1.0,
-          "plot_score": 0.0
-        },
-        {
           "movie_id": 235391,
           "final_score": 1.0,
           "tag_score": 1.0,
@@ -2768,6 +2762,12 @@
           "plot_score": 0.0
         },
         {
+          "movie_id": 1013411,
+          "final_score": 1.0,
+          "tag_score": 1.0,
+          "plot_score": 0.0
+        },
+        {
           "movie_id": 1014474,
           "final_score": 1.0,
           "tag_score": 1.0,
@@ -3002,12 +3002,6 @@
           "plot_score": 0.0
         },
         {
-          "movie_id": 263076,
-          "final_score": 0.707107,
-          "tag_score": 0.707107,
-          "plot_score": 0.0
-        },
-        {
           "movie_id": 258655,
           "final_score": 0.707107,
           "tag_score": 0.707107,
@@ -3015,6 +3009,12 @@
         },
         {
           "movie_id": 258656,
+          "final_score": 0.707107,
+          "tag_score": 0.707107,
+          "plot_score": 0.0
+        },
+        {
+          "movie_id": 263076,
           "final_score": 0.707107,
           "tag_score": 0.707107,
           "plot_score": 0.0
@@ -3368,19 +3368,7 @@
           "plot_score": 0.0
         },
         {
-          "movie_id": 560299,
-          "final_score": 0.707107,
-          "tag_score": 0.707107,
-          "plot_score": 0.0
-        },
-        {
           "movie_id": 530179,
-          "final_score": 0.707107,
-          "tag_score": 0.707107,
-          "plot_score": 0.0
-        },
-        {
-          "movie_id": 560300,
           "final_score": 0.707107,
           "tag_score": 0.707107,
           "plot_score": 0.0
@@ -3453,6 +3441,18 @@
         },
         {
           "movie_id": 559684,
+          "final_score": 0.707107,
+          "tag_score": 0.707107,
+          "plot_score": 0.0
+        },
+        {
+          "movie_id": 560299,
+          "final_score": 0.707107,
+          "tag_score": 0.707107,
+          "plot_score": 0.0
+        },
+        {
+          "movie_id": 560300,
           "final_score": 0.707107,
           "tag_score": 0.707107,
           "plot_score": 0.0
@@ -5188,16 +5188,16 @@
           "plot_score": 0.476349
         },
         {
-          "movie_id": 319682,
-          "final_score": 0.310993,
-          "tag_score": 0.242973,
-          "plot_score": 0.379013
-        },
-        {
           "movie_id": 123419,
           "final_score": 0.310993,
           "tag_score": 0.305177,
           "plot_score": 0.316809
+        },
+        {
+          "movie_id": 319682,
+          "final_score": 0.310993,
+          "tag_score": 0.242973,
+          "plot_score": 0.379013
         },
         {
           "movie_id": 256304,

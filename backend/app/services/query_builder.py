@@ -96,7 +96,7 @@ def build(req: RecommendRequest, timings: dict | None = None) -> Query:
 
     tag_ann = None
     if tag_sparse is not None:
-        red = artifacts.svd().transform(tag_sparse)               # (1, n_components)
+        red = artifacts.svd_transform_sparse(tag_sparse)          # (1, n_components) float64
         tag_ann = normalize(red, norm="l2")[0].astype(np.float32)
     tag_time = round(time.perf_counter() - t0, 4)
     if timings is not None:

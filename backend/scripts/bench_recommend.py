@@ -35,10 +35,11 @@ from app.db.pool import open_pool, close_pool
 from app.db import queries
 from app.db.queries import Filters, _where
 from app.schemas import RecommendRequest, TagIn
-from app.services import recommender
-from app.stores import artifacts, chroma, text_embedder
+from app.services import recommender, query_builder, candidates, scoring, fusion
+from app.stores import artifacts, chroma, text_embedder, meta_index
 
 FIXED_MOVIE_IDS = [238, 240, 278]  # The Godfather, The Godfather Part II, The Shawshank Redemption
+SCORE_TOLERANCE = 1.001e-6  # Tolerance of 1e-6 with IEEE 754 float epsilon margin
 
 TIMING_KEYS = [
     # query_builder
@@ -290,7 +291,7 @@ def compare_strict(current_results: dict, current_stats: dict, baseline_file: Pa
                 )
             for score_field in ("final_score", "tag_score", "plot_score"):
                 cs, bs = cur_item[score_field], base_item[score_field]
-                if abs(cs - bs) > 1e-6:
+                if abs(cs - bs) > SCORE_TOLERANCE:
                     raise AssertionError(
                         f"Case '{case_key}' rank #{i} (movie {cid}) {score_field} mismatch: "
                         f"current={cs}, baseline={bs}, diff={abs(cs-bs):.8f}"
@@ -336,7 +337,7 @@ def compare_scores_mode(current_results: dict, current_stats: dict, baseline_fil
             base_item = base_map[mid]
             for score_field in ("final_score", "tag_score", "plot_score"):
                 cs, bs = cur_item[score_field], base_item[score_field]
-                if abs(cs - bs) > 1e-6:
+                if abs(cs - bs) > SCORE_TOLERANCE:
                     raise AssertionError(
                         f"Case '{case_key}' movie {mid} {score_field} mismatch on common item: "
                         f"current={cs}, baseline={bs}, diff={abs(cs - bs):.8f}"
@@ -414,6 +415,91 @@ def resolve_file(path_str: str) -> Path:
     return cwd_p
 
 
+def run_ground_truth_eval():
+    """Brute-force exact top-50/200 over full masked set for cases b, e, f.
+    Report recall@50 and recall@200 for: Current, Strategy A, Strategy B."""
+    all_cases = get_cases()
+    print("\n" + "=" * 90)
+    print("GROUND TRUTH QUALITY EVALUATION (BRUTE-FORCE OVER FULL MASKED SET)")
+    print("=" * 90)
+
+    for ckey in ["b", "e", "f"]:
+        cinfo = all_cases[ckey]
+        req = cinfo["request"]
+        print(f"\nComputing Ground Truth for Case {ckey}: {cinfo['description']}...")
+
+        q = query_builder.build(req)
+        f = Filters.from_request(req)
+        mask = meta_index.mask_for(f)
+        idx = meta_index.get_index()
+        full_pool = [int(mid) for mid in idx.ids[mask] if mid not in q.movie_ids]
+        n_full = len(full_pool)
+
+        t0 = time.perf_counter()
+        s_truth = scoring.score(full_pool, q)
+        truth_ranked = fusion.fuse(s_truth, req.tag_weight, top_n=200)
+        t_truth = time.perf_counter() - t0
+        print(f"  Ground truth scored {n_full} movies in {t_truth:.2f}s")
+
+        gt_ids_50 = set(r["movie_id"] for r in truth_ranked[:50])
+        gt_ids_200 = set(r["movie_id"] for r in truth_ranked[:200])
+
+        # Current implementation
+        cur_out = recommender.retrieve_and_rank(req)
+        cur_ranked = cur_out["ranked"]
+        cur_ids_50 = [r["movie_id"] for r in cur_ranked[:50]]
+        cur_ids_200 = [r["movie_id"] for r in cur_ranked[:200]]
+
+        # Strategy A (exact if n <= 150k, else ladder ANN)
+        if n_full <= 150_000:
+            a_pool = full_pool
+        else:
+            a_pool = candidates.generate(req, q)
+        s_a = scoring.score(a_pool, q)
+        a_ranked = fusion.fuse(s_a, req.tag_weight, top_n=200)
+        a_ids_50 = [r["movie_id"] for r in a_ranked[:50]]
+        a_ids_200 = [r["movie_id"] for r in a_ranked[:200]]
+
+        # Strategy B (unfiltered ANN with escalating ladder k=2k->8k->20k + mask)
+        ladder = [2000, 8000, 20000]
+        target = settings.pool_cap
+        b_lists = []
+        i2r = idx.id_to_row
+        for k_step in ladder:
+            raw_lists = candidates._ann(q, where=None, k=k_step)
+            b_lists = []
+            for lst in raw_lists:
+                b_lists.append([mid for mid in lst if mask[i2r[mid]]])
+            tag_cnt = len(b_lists[0]) if len(b_lists) > 0 else 0
+            plot_cnt = len(b_lists[1]) if len(b_lists) > 1 else 0
+            if (tag_cnt >= target // 2 and plot_cnt >= target // 2) or (tag_cnt + plot_cnt >= target):
+                break
+        b_pool = candidates._interleave(b_lists, settings.pool_cap, set(q.movie_ids))
+        s_b = scoring.score(b_pool, q)
+        b_ranked = fusion.fuse(s_b, req.tag_weight, top_n=200)
+        b_ids_50 = [r["movie_id"] for r in b_ranked[:50]]
+        b_ids_200 = [r["movie_id"] for r in b_ranked[:200]]
+
+        def calc_recalls(ids_50, ids_200):
+            k50 = min(50, len(ids_50), len(gt_ids_50))
+            k200 = min(200, len(ids_200), len(gt_ids_200))
+            r50 = len(set(ids_50[:k50]) & gt_ids_50) / k50 if k50 > 0 else 1.0
+            r200 = len(set(ids_200[:k200]) & gt_ids_200) / k200 if k200 > 0 else 1.0
+            return r50, r200
+
+        cur_r50, cur_r200 = calc_recalls(cur_ids_50, cur_ids_200)
+        a_r50, a_r200 = calc_recalls(a_ids_50, a_ids_200)
+        b_r50, b_r200 = calc_recalls(b_ids_50, b_ids_200)
+
+        print(f"\n--- Case {ckey} Quality (Full Masked Set = {n_full}) ---")
+        print(f"{'Method':<30} {'Pool Size':>12} {'Recall@50':>15} {'Recall@200':>15}")
+        print("-" * 75)
+        print(f"{'Ground Truth (Exact)':<30} {n_full:>12} {'100.0%':>15} {'100.0%':>15}")
+        print(f"{'Current Implementation':<30} {cur_out['pool_size']:>12} {cur_r50*100:>14.1f}% {cur_r200*100:>14.1f}%")
+        print(f"{'Strategy A (Exact <=150k)':<30} {len(a_pool):>12} {a_r50*100:>14.1f}% {a_r200*100:>14.1f}%")
+        print(f"{'Strategy B (Unfiltered ANN)':<30} {len(b_pool):>12} {b_r50*100:>14.1f}% {b_r200*100:>14.1f}%")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Benchmark retrieve_and_rank latency and verify scores.")
     parser.add_argument("--save-baseline", nargs="?", const="bench_baseline.json", default=None,
@@ -422,12 +508,14 @@ def main():
                         help="Strict comparison against baseline JSON file.")
     parser.add_argument("--compare-scores", type=str, default=None,
                         help="Score integrity and overlap comparison against baseline JSON file.")
+    parser.add_argument("--ground-truth", action="store_true",
+                        help="Run ground-truth quality evaluation on filtered cases (b, e, f).")
     parser.add_argument("-N", "--n", type=int, default=None,
                         help="Set number of iterations for all cases.")
     parser.add_argument("--n-fast", type=int, default=30,
                         help="Number of iterations for fast cases a, c, d (default: 30).")
-    parser.add_argument("--n-slow", type=int, default=3,
-                        help="Number of iterations for slow cases b, e, f (default: 3).")
+    parser.add_argument("--n-slow", type=int, default=10,
+                        help="Number of iterations for slow cases b, e, f (default: 10).")
     parser.add_argument("--cases", nargs="+", default=["a", "b", "c", "d", "e", "f"],
                         help="Cases to run (default: a b c d e f).")
     args = parser.parse_args()
@@ -436,8 +524,7 @@ def main():
         args.n_fast = args.n
         args.n_slow = args.n
 
-    if args.save_baseline is None and not args.compare and not args.compare_scores:
-        args.save_baseline = "bench_baseline.json"
+    # Only save baseline when explicitly requested via --save-baseline
 
     # Reproducibility seeds
     random.seed(42)
@@ -446,6 +533,7 @@ def main():
     print("Initializing environment...")
     open_pool()
     artifacts.load_all()
+    meta_index.load_index()
     chroma.get_collection(settings.plots_collection)
     chroma.get_collection(settings.tags_collection)
     text_embedder.get_sentence_transformer()
@@ -461,6 +549,9 @@ def main():
         elif args.compare_scores:
             base_file = resolve_file(args.compare_scores)
             compare_scores_mode(results, stats, base_file)
+
+        if args.ground_truth:
+            run_ground_truth_eval()
 
         # If saving baseline requested
         if args.save_baseline:

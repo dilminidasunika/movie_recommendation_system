@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import numpy as np
 from psycopg_pool import ConnectionPool
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -10,17 +11,42 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import settings
 from app.db.pool import get_pool, open_pool, close_pool
+from app.schemas import RecommendRequest, TagIn
 from app.security import limiter
-from app.stores import artifacts, chroma, text_embedder
+from app.services import recommender
+from app.stores import artifacts, chroma, text_embedder, meta_index
 from app.api import movies, tags, recommend
+
+
+def _warmup() -> None:
+    """Warm up recommendation pipeline on the REAL path with fixed synthetic requests."""
+    rng = np.random.default_rng(42)
+    all_ids = list(artifacts.id_to_row().keys())
+
+    warmup_requests = [
+        RecommendRequest(movie_ids=[238, 240, 278], tag_weight=0.5),
+        RecommendRequest(movie_ids=rng.choice(all_ids, size=3, replace=False).tolist(), tag_weight=0.5),
+        RecommendRequest(movie_ids=rng.choice(all_ids, size=3, replace=False).tolist(), tag_weight=0.5),
+        RecommendRequest(movie_ids=[238, 240, 278], plot_text="A dramatic story of crime, family loyalty, and redemption.", tag_weight=0.5),
+        RecommendRequest(tags=[TagIn(tag_type="genres", name="Drama")], tag_weight=1.0),
+    ]
+
+    for req in warmup_requests:
+        try:
+            recommender.retrieve_and_rank(req)
+        except Exception:
+            pass
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.pool = open_pool()
     artifacts.load_all()
+    meta_index.load_index()
     chroma.get_collection(settings.plots_collection)
     chroma.get_collection(settings.tags_collection)
     text_embedder.get_sentence_transformer()
+    _warmup()
     yield
     close_pool()
 

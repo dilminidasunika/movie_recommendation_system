@@ -18,7 +18,7 @@ VECTORIZER_MID  = "tag_vectorizer_mid.joblib"   # fitted CountVectorizer for MID
 VECTORIZER_LOW  = "tag_vectorizer_low.joblib"    # fitted CountVectorizer for LOW_FIELDS
 SVD = "tag_svd_model.joblib"                   # fitted TruncatedSVD
 PLOT_EMB = "plot_embeddings.npy"     # optional runtime use only (memmap path)
-PLOT_IDS = "plot_ids.npy"            # must exist if you use the memmap path
+PLOT_IDS = "plot_embeddings_movie_ids.npy"     # int64 movie ids, one per row
 
 
 def _p(name: str):
@@ -56,12 +56,44 @@ def svd():
     return joblib.load(_p(SVD))
 
 
+def svd_transform_sparse(x_csr: sp.csr_matrix | None) -> np.ndarray:
+    """Fast TruncatedSVD transform for a 1xV sparse CSR vector by taking the dot product
+    only over active sub-columns of components_, avoiding streaming the full dense matrix.
+    Returns (1, n_components) float64 array.
+    """
+    model = svd()
+    n_components = model.components_.shape[0]
+    if x_csr is None or x_csr.nnz == 0:
+        return np.zeros((1, n_components), dtype=np.float64)
+
+    if not sp.isspmatrix_csr(x_csr):
+        x_csr = x_csr.tocsr()
+
+    cols = x_csr.indices
+    data = x_csr.data
+    red = model.components_[:, cols] @ data
+    return red.reshape(1, n_components).astype(np.float64)
+
+
 @lru_cache(maxsize=1)
 def plot_memmap():
-    """Only if Chroma batch fetch is too slow for the small branch (step 33)."""
     emb = np.load(_p(PLOT_EMB), mmap_mode="r")
     ids = np.load(_p(PLOT_IDS))
     return emb, {int(i): r for r, i in enumerate(ids)}
+
+
+def get_plot_embeddings(movie_ids: list[int]) -> dict[int, np.ndarray]:
+    emb, id_to_r = plot_memmap()
+    unique_ids = list(dict.fromkeys(movie_ids))
+    pairs = [(mid, id_to_r[mid]) for mid in unique_ids if mid in id_to_r]
+    if not pairs:
+        return {}
+    pairs.sort(key=lambda x: x[1])
+    sorted_rows = [p[1] for p in pairs]
+    sorted_mids = [p[0] for p in pairs]
+    vecs = np.asarray(emb[sorted_rows], dtype=np.float32)
+    return {mid: vecs[i] for i, mid in enumerate(sorted_mids)}
+
 
 @lru_cache(maxsize=1)
 def row_norms() -> np.ndarray:
@@ -83,5 +115,8 @@ def load_all() -> None:
         raise RuntimeError(f"vocab {total_vocab} != matrix cols {m.shape[1]}")
     svd()
     id_to_row()
+    emb, _ = plot_memmap()
+    _ = np.sum(emb[:, 0])  # pre-fault plot memmap into OS page cache
+    row_norms()             # pre-compute and cache row norms
     log.info("artifacts loaded: %s rows, %s cols, svd=%s",
              m.shape[0], m.shape[1], svd().components_.shape)

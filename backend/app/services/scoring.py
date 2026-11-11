@@ -5,7 +5,7 @@ import time
 from dataclasses import dataclass
 import numpy as np
 
-from app.stores import artifacts, chroma
+from app.stores import artifacts
 
 log = logging.getLogger(__name__)
 
@@ -46,16 +46,23 @@ def score(pool_ids: list[int], q, timings: dict | None = None) -> Scores:
     # Exact plot cosine: embeddings are normalized, so normalize the centroid too
     t0 = time.perf_counter()
     if q.plot_centroid is not None:
-        c = np.asarray(q.plot_centroid, dtype=float)
+        c = np.asarray(q.plot_centroid, dtype=np.float32)
         cn = np.linalg.norm(c)
         if cn > 0:
             c = c / cn                                  # mean of unit vectors is not unit
-            embs = chroma.get_plot_embeddings(pool_ids) # missing ids simply absent
-            if embs:
-                pos = [k for k, i in enumerate(pool_ids) if i in embs]
-                mat = np.stack([embs[pool_ids[k]] for k in pos])
-                plot[pos] = mat @ c
-                plot_ok[pos] = True
+            emb, id_to_r = artifacts.plot_memmap()
+            valid_items = [(id_to_r[mid], k) for k, mid in enumerate(pool_ids) if mid in id_to_r]
+            if valid_items:
+                valid_items.sort(key=lambda x: x[0])
+                rows = np.array([x[0] for x in valid_items], dtype=np.int64)
+                orig_pos = np.array([x[1] for x in valid_items], dtype=np.int64)
+                chunk_size = 8192
+                total_valid = len(rows)
+                for start in range(0, total_valid, chunk_size):
+                    end = min(start + chunk_size, total_valid)
+                    chunk_vecs = emb[rows[start:end]]
+                    plot[orig_pos[start:end]] = chunk_vecs @ c
+                    plot_ok[orig_pos[start:end]] = True
     score_plot_time = round(time.perf_counter() - t0, 4)
     if timings is not None:
         timings["score_plot"] = score_plot_time
