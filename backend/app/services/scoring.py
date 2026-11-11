@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 import numpy as np
 
+from app.config import settings
 from app.stores import artifacts
 
 log = logging.getLogger(__name__)
@@ -31,11 +32,15 @@ def score(pool_ids: list[int], q, timings: dict | None = None) -> Scores:
         pos = [k for k, i in enumerate(pool_ids) if i in i2r]
         if pos:
             rows = [i2r[pool_ids[k]] for k in pos]
-            norms = artifacts.row_norms()[rows]
-            dots = (artifacts.tag_matrix()[rows] @ q.tag_sparse.T).toarray().ravel()
-            valid = norms > 0
-            sims = np.zeros(len(rows))
-            sims[valid] = dots[valid] / norms[valid]   # q is already unit norm
+            if getattr(q, "tag_full_sims", None) is not None:
+                sims = q.tag_full_sims[rows]
+                valid = artifacts.row_norms()[rows] > 0
+            else:
+                norms = artifacts.row_norms()[rows]
+                dots = (artifacts.tag_matrix()[rows] @ q.tag_sparse.T).toarray().ravel()
+                valid = norms > 0
+                sims = np.zeros(len(rows))
+                sims[valid] = dots[valid] / norms[valid]   # q is already unit norm
             pos = np.asarray(pos)
             tag[pos], tag_ok[pos] = sims, valid
     score_tag_time = round(time.perf_counter() - t0, 4)

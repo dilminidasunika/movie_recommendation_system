@@ -113,10 +113,12 @@ def load_all() -> None:
     total_vocab = sum(len(v.vocabulary_) for v in vs)
     if total_vocab != m.shape[1]:
         raise RuntimeError(f"vocab {total_vocab} != matrix cols {m.shape[1]}")
-    svd()
+    if not settings.use_matvec_tag_candidates:
+        svd()
     id_to_row()
     emb, _ = plot_memmap()
     _ = np.sum(emb[:, 0])  # pre-fault plot memmap into OS page cache
     row_norms()             # pre-compute and cache row norms
+    svd_shape = svd().components_.shape if not settings.use_matvec_tag_candidates else "skipped"
     log.info("artifacts loaded: %s rows, %s cols, svd=%s",
-             m.shape[0], m.shape[1], svd().components_.shape)
+             m.shape[0], m.shape[1], svd_shape)

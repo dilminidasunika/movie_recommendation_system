@@ -1,3 +1,10 @@
+import os
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
+
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -44,7 +51,8 @@ async def lifespan(app: FastAPI):
     artifacts.load_all()
     meta_index.load_index()
     chroma.get_collection(settings.plots_collection)
-    chroma.get_collection(settings.tags_collection)
+    if not settings.use_matvec_tag_candidates:
+        chroma.get_collection(settings.tags_collection)
     text_embedder.get_sentence_transformer()
     _warmup()
     yield

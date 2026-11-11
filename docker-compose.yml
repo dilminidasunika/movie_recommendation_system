@@ -37,6 +37,11 @@ services:
       APP_ENV: ${APP_ENV:-dev}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-["localhost","127.0.0.1"]}
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+      VECLIB_MAXIMUM_THREADS: "1"
     expose:
       - "8000"
     volumes:

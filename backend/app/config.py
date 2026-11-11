@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     exact_limit: int = 75_000
     ann_k: int = 2000
     pool_cap: int = 2000
+    use_uncapped_pool: bool = False
+    use_matvec_tag_candidates: bool = False
+    k_tag: int = 2000
+    k_plot: int = 2000
     max_results: int = 200
     min_survivors: int = 1000
     starvation_hard_cap: int = 300_000

@@ -10,6 +10,7 @@ import numpy as np
 import scipy.sparse as sp
 from sklearn.preprocessing import normalize
 
+from app.config import settings
 from app.schemas import RecommendRequest
 from app.stores import artifacts, chroma, text_embedder
 from app.services.soup import build_tier_docs
@@ -33,6 +34,7 @@ class Query:
     missing_tag_ids: list[int] = field(default_factory=list)    # selected movies with no tag row
     missing_plot_ids: list[int] = field(default_factory=list)   # selected movies with no plot embedding
     plot_text: str | None = None
+    tag_full_sims: np.ndarray | None = None
 
 
 def _movie_tag_part(movie_ids: list[int]):
@@ -95,7 +97,7 @@ def build(req: RecommendRequest, timings: dict | None = None) -> Query:
         tag_sparse = normalize(sum(parts[1:], parts[0]), norm="l2")
 
     tag_ann = None
-    if tag_sparse is not None:
+    if tag_sparse is not None and not settings.use_matvec_tag_candidates:
         red = artifacts.svd_transform_sparse(tag_sparse)          # (1, n_components) float64
         tag_ann = normalize(red, norm="l2")[0].astype(np.float32)
     tag_time = round(time.perf_counter() - t0, 4)
