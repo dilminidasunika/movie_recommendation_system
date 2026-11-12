@@ -25,13 +25,13 @@ class Settings(BaseSettings):
 
     # Retrieval tunables (tuned in step 53)
     chip_weight: float = 1.0
-    exact_limit: int = 75_000
+    exact_limit: int = 300_000
     ann_k: int = 2000
     pool_cap: int = 2000
-    use_uncapped_pool: bool = False
-    use_matvec_tag_candidates: bool = False
-    k_tag: int = 2000
-    k_plot: int = 2000
+    use_uncapped_pool: bool = True
+    use_matvec_tag_candidates: bool = True
+    k_tag: int = 10_000
+    k_plot: int = 5_000
     max_results: int = 200
     min_survivors: int = 1000
     starvation_hard_cap: int = 300_000
