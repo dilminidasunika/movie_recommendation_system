@@ -93,13 +93,12 @@ def _ann(q, where: dict | None = None, timings: dict | None = None, k: int | Non
 def _matvec_tag(q, k: int, exclude: set[int]) -> tuple[list[int], float]:
     """Exact tag cosine over in-memory CSR tag matrix, saves full sims on q.tag_full_sims.
 
-    Optimizations vs the original:
-    - Dense float64 query vector: CSR @ dense releases the GIL for BLAS kernels,
-      vs CSR @ sparse which stays single-threaded and produces a sparse result.
-    - Precomputed inv_norms: elementwise multiply instead of boolean-mask division
-      (no branch, no extra copies, no intermediate boolean array).
-    - In-place temporary mask for excluded seeds (restored afterwards) to avoid
-      allocating a 4.3 MB copy of sims.
+    Optimizations & tie-handling:
+    - Dense float64 query vector: CSR @ dense releases GIL for BLAS kernels.
+    - Precomputed inv_norms: elementwise multiply instead of boolean-mask division.
+    - Zero-copy seed exclusion: temporarily marks excluded seeds as -1.0, restores after selection.
+    - Tie-aware boundary coverage: includes ALL candidates whose score >= kth score,
+      with a 30,000 safety cap keeping lowest movie IDs if exceeded.
     """
     t0 = time.perf_counter()
     tag_m = artifacts.tag_matrix()
@@ -127,12 +126,24 @@ def _matvec_tag(q, k: int, exclude: set[int]) -> tuple[list[int], float]:
             sims[r] = -1.0
 
     if k < len(sims):
-        top_idx = np.argpartition(-sims, k)[:k]
-        top_sorted = top_idx[np.argsort(-sims[top_idx])]
+        kth = float(np.partition(sims, -k)[-k])
+        # Include all candidates whose score >= kth (excluding seeds marked -1.0)
+        idx = np.flatnonzero((sims >= kth) & (sims > -0.5))
+        cand_ids = tag_ids[idx]
+        cand_scores = sims[idx]
+        order = np.lexsort((cand_ids, -cand_scores))
+        if len(idx) > 30_000:
+            log.warning(
+                "Tag ties at kth=%.6f exceeded safety cap (%d > 30000); keeping lowest ids",
+                kth, len(idx)
+            )
+            order = order[:30_000]
+        top_sorted = idx[order]
     else:
-        top_sorted = np.argsort(-sims)
+        order = np.lexsort((tag_ids, -sims))
+        top_sorted = np.array([r for r in order if sims[r] > -0.5])
 
-    tag_candidates = [int(tag_ids[r]) for r in top_sorted if sims[r] > -0.5]
+    tag_candidates = [int(tag_ids[r]) for r in top_sorted]
 
     # Restore excluded seed scores so q.tag_full_sims remains true similarities
     for r, val in orig_vals.items():
