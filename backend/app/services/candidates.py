@@ -91,32 +91,53 @@ def _ann(q, where: dict | None = None, timings: dict | None = None, k: int | Non
 
 
 def _matvec_tag(q, k: int, exclude: set[int]) -> tuple[list[int], float]:
-    """Exact tag cosine over in-memory CSR tag matrix, saves full sims on q.tag_full_sims."""
+    """Exact tag cosine over in-memory CSR tag matrix, saves full sims on q.tag_full_sims.
+
+    Optimizations vs the original:
+    - Dense float64 query vector: CSR @ dense releases the GIL for BLAS kernels,
+      vs CSR @ sparse which stays single-threaded and produces a sparse result.
+    - Precomputed inv_norms: elementwise multiply instead of boolean-mask division
+      (no branch, no extra copies, no intermediate boolean array).
+    - In-place temporary mask for excluded seeds (restored afterwards) to avoid
+      allocating a 4.3 MB copy of sims.
+    """
     t0 = time.perf_counter()
     tag_m = artifacts.tag_matrix()
-    tag_norms = artifacts.row_norms()
     tag_ids = artifacts.matrix_ids()
     id_to_row = artifacts.id_to_row()
+    inv = artifacts.inv_norms()
 
-    dots = (tag_m @ q.tag_sparse.T).toarray().ravel()
-    valid = tag_norms > 0
-    sims = np.zeros(len(tag_norms), dtype=np.float32)
-    sims[valid] = dots[valid] / tag_norms[valid]
+    # Build dense float64 query from the sparse representation
+    V = tag_m.shape[1]
+    qd = np.zeros(V, dtype=np.float64)
+    qd[q.tag_sparse.indices] = q.tag_sparse.data
+
+    # CSR @ dense (releases GIL via BLAS); elementwise multiply by precomputed 1/norm
+    dots = tag_m @ qd                       # float64, length N
+    sims = (dots * inv).astype(np.float32)  # float32, length N
 
     q.tag_full_sims = sims
 
-    scores_for_pick = sims.copy()
+    # Exclude seeds in-place without copying the 4.3 MB sims array
+    orig_vals: dict[int, float] = {}
     for s in exclude:
         if s in id_to_row:
-            scores_for_pick[id_to_row[s]] = -1.0
+            r = id_to_row[s]
+            orig_vals[r] = float(sims[r])
+            sims[r] = -1.0
 
-    if k < len(scores_for_pick):
-        top_idx = np.argpartition(-scores_for_pick, k)[:k]
-        top_sorted = top_idx[np.argsort(-scores_for_pick[top_idx])]
+    if k < len(sims):
+        top_idx = np.argpartition(-sims, k)[:k]
+        top_sorted = top_idx[np.argsort(-sims[top_idx])]
     else:
-        top_sorted = np.argsort(-scores_for_pick)
+        top_sorted = np.argsort(-sims)
 
-    tag_candidates = [int(tag_ids[r]) for r in top_sorted if scores_for_pick[r] > -0.5]
+    tag_candidates = [int(tag_ids[r]) for r in top_sorted if sims[r] > -0.5]
+
+    # Restore excluded seed scores so q.tag_full_sims remains true similarities
+    for r, val in orig_vals.items():
+        sims[r] = val
+
     dt = round(time.perf_counter() - t0, 4)
     return tag_candidates, dt
 

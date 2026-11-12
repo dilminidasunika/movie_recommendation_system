@@ -35,6 +35,18 @@ def score(pool_ids: list[int], q, timings: dict | None = None) -> Scores:
             if getattr(q, "tag_full_sims", None) is not None:
                 sims = q.tag_full_sims[rows]
                 valid = artifacts.row_norms()[rows] > 0
+            elif len(pos) > 20_000:
+                # Large exact pool: compute full dense matvec once and index into it.
+                # This avoids CSR row-slicing + sparse matmul for each pool member.
+                tag_m = artifacts.tag_matrix()
+                inv = artifacts.inv_norms()
+                V = tag_m.shape[1]
+                qd = np.zeros(V, dtype=np.float64)
+                qd[q.tag_sparse.indices] = q.tag_sparse.data
+                full_sims = ((tag_m @ qd) * inv).astype(np.float32)
+                sims = full_sims[rows]
+                valid = artifacts.row_norms()[rows] > 0
+                # Do not store on q: it will be released after scoring anyway
             else:
                 norms = artifacts.row_norms()[rows]
                 dots = (artifacts.tag_matrix()[rows] @ q.tag_sparse.T).toarray().ravel()

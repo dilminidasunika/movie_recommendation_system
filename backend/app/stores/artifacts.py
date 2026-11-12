@@ -101,6 +101,16 @@ def row_norms() -> np.ndarray:
     return np.sqrt(np.asarray(m.multiply(m).sum(axis=1)).ravel())
 
 
+@lru_cache(maxsize=1)
+def inv_norms() -> np.ndarray:
+    """Precomputed reciprocal norms: 0 where norm is 0 (avoids division in matvec)."""
+    norms = row_norms()
+    inv = np.zeros_like(norms)
+    valid = norms > 0
+    inv[valid] = 1.0 / norms[valid]
+    return inv
+
+
 def load_all() -> None:
     """Call once from the FastAPI lifespan so the first request isn't slow
     and a missing or corrupt file fails at boot, not mid-request."""
@@ -119,6 +129,7 @@ def load_all() -> None:
     emb, _ = plot_memmap()
     _ = np.sum(emb[:, 0])  # pre-fault plot memmap into OS page cache
     row_norms()             # pre-compute and cache row norms
+    inv_norms()             # pre-compute and cache inverse norms
     svd_shape = svd().components_.shape if not settings.use_matvec_tag_candidates else "skipped"
     log.info("artifacts loaded: %s rows, %s cols, svd=%s",
              m.shape[0], m.shape[1], svd_shape)
