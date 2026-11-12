@@ -55,8 +55,8 @@ def score(pool_ids: list[int] | np.ndarray, q, timings: dict | None = None) -> S
             if getattr(q, "tag_full_sims", None) is not None:
                 tag[valid] = q.tag_full_sims[tag_rows[valid]]
                 tag_ok[valid] = artifacts.row_norms()[tag_rows[valid]] > 0
-            elif n > 20_000:
-                # Large exact pool: compute full dense matvec once and index into it.
+            elif n >= settings.tag_dense_matvec_threshold:
+                # Large exact pool (>= threshold): compute full dense matvec once and index into it.
                 # Bypasses CSR row-slicing and per-candidate sparse matmul.
                 tag_m = artifacts.tag_matrix()
                 inv = artifacts.inv_norms()
@@ -104,6 +104,12 @@ def score(pool_ids: list[int] | np.ndarray, q, timings: dict | None = None) -> S
                     chunk_vecs = emb[sorted_rows[start:end]]
                     plot[orig_pos[start:end]] = chunk_vecs @ c
                     plot_ok[orig_pos[start:end]] = True
+
+                # Suppress boilerplate plots (behind config flag)
+                if settings.suppress_boilerplate_plots:
+                    suppressed = artifacts.plot_suppressed()
+                    supp_mask = suppressed[valid_rows]
+                    plot_ok[valid_pos[supp_mask]] = False
     score_plot_time = round(time.perf_counter() - t0, 4)
     if timings is not None:
         timings["score_plot"] = score_plot_time

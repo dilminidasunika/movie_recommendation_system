@@ -156,6 +156,15 @@ def plot_rows_for(ids) -> np.ndarray:
 
 
 @lru_cache(maxsize=1)
+def plot_suppressed() -> np.ndarray:
+    """Bool mask aligned with plot memmap rows: True = boilerplate/suppressed."""
+    p = _p("plot_suppressed.npy")
+    if p.exists():
+        return np.load(p)
+    return np.zeros(plot_ids().shape[0], dtype=bool)
+
+
+@lru_cache(maxsize=1)
 def plot_memmap():
     emb = np.load(_p(PLOT_EMB), mmap_mode="r")
     return emb, plot_index()
@@ -213,6 +222,8 @@ def load_all() -> None:
     _ = np.sum(emb[:, 0])  # pre-fault plot memmap into OS page cache
     row_norms()             # pre-compute and cache row norms
     inv_norms()             # pre-compute and cache inverse norms
+    ps = plot_suppressed()  # load boilerplate-plot suppression mask
+    log.info("plot_suppressed: %d / %d rows marked", int(ps.sum()), len(ps))
     svd_shape = svd().components_.shape if not settings.use_matvec_tag_candidates else "skipped"
     log.info("artifacts loaded: %s rows, %s cols, svd=%s",
              m.shape[0], m.shape[1], svd_shape)

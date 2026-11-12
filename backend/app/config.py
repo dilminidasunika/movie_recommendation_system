@@ -35,7 +35,9 @@ class Settings(BaseSettings):
     max_results: int = 200
     min_survivors: int = 1000
     starvation_hard_cap: int = 300_000
-    tie_break_plot: bool = False
+    tie_break_plot: bool = True
+    tag_dense_matvec_threshold: int = 200_000
+    suppress_boilerplate_plots: bool = True
 
     gemini_api_key: str = Field(validation_alias="GEMINI_API_KEY")
     gemini_model: str = "gemini-2.5-flash"   # check AI Studio for the current model id

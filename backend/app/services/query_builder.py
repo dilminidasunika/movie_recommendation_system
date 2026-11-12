@@ -71,6 +71,22 @@ def _plot_centroid(movie_ids: list[int]):
         return None, []
     embs = chroma.get_plot_embeddings(movie_ids)                  # {id: np.ndarray}
     missing = [i for i in movie_ids if i not in embs]
+
+    # Suppress boilerplate plots from centroid calculation
+    if settings.suppress_boilerplate_plots and embs:
+        suppressed_mask = artifacts.plot_suppressed()
+        plot_idx = artifacts.plot_index()
+        suppressed_ids = []
+        for mid in list(embs.keys()):
+            row = plot_idx.get(mid)
+            if row is not None and suppressed_mask[row]:
+                suppressed_ids.append(mid)
+                del embs[mid]
+        if suppressed_ids:
+            missing.extend(suppressed_ids)
+            log.warning("suppressed %d boilerplate seed plot(s): %s",
+                        len(suppressed_ids), suppressed_ids)
+
     if not embs:
         return None, missing
     c = np.mean(np.stack(list(embs.values())), axis=0, keepdims=True)
