@@ -26,7 +26,14 @@ def _get_rss_mb():
     """Return current process RSS in MB (Windows & Linux)."""
     try:
         import psutil
-        return psutil.Process().memory_info().rss / (1024 * 1024)
+        p = psutil.Process()
+        # On Windows, 'rss' is WorkingSetSize which includes touched pages of the
+        # file-backed mmap (plot_embeddings.bin). Use private bytes on Windows
+        # to isolate heap memory growth and avoid OS memmap caching noise.
+        mem = p.memory_info()
+        if hasattr(mem, "private"):
+            return mem.private / (1024 * 1024)
+        return mem.rss / (1024 * 1024)
     except ImportError:
         pass
     import ctypes
