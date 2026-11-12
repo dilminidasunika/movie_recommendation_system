@@ -9,3 +9,5 @@ __pycache__/
 /tests/test1.py
 /tests/test2.py
 /tests/test3.py
+/bench/*.json
+!/bench/bench_baseline.json

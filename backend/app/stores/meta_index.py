@@ -31,6 +31,7 @@ class MetaIndex(NamedTuple):
 _INDEX: MetaIndex | None = None
 _META_TO_TAG_ROW: np.ndarray | None = None
 _META_TO_PLOT_ROW: np.ndarray | None = None
+_TAG_TO_META_ROW: np.ndarray | None = None
 
 
 def meta_to_tag_row() -> np.ndarray:
@@ -51,6 +52,15 @@ def meta_to_plot_row() -> np.ndarray:
     return _META_TO_PLOT_ROW
 
 
+def tag_to_meta_row() -> np.ndarray:
+    """Precomputed mapping from tag_matrix row to meta_index row (-1 if absent)."""
+    global _TAG_TO_META_ROW
+    if _TAG_TO_META_ROW is None:
+        idx = get_index()
+        _TAG_TO_META_ROW = idx.id_to_row.rows_for(artifacts.matrix_ids())
+    return _TAG_TO_META_ROW
+
+
 def rows_for(query_ids) -> np.ndarray:
     """Vectorized lookup: returns meta_index row indices for query_ids (-1 if absent)."""
     idx = get_index()
@@ -59,7 +69,7 @@ def rows_for(query_ids) -> np.ndarray:
 
 def load_index() -> MetaIndex:
     """Stream movies metadata from Postgres and build fast in-memory numpy index."""
-    global _INDEX, _META_TO_TAG_ROW, _META_TO_PLOT_ROW
+    global _INDEX, _META_TO_TAG_ROW, _META_TO_PLOT_ROW, _TAG_TO_META_ROW
     t0 = time.perf_counter()
     log.info("Loading MetaIndex from Postgres...")
 
@@ -73,6 +83,11 @@ def load_index() -> MetaIndex:
             cur.execute("SELECT DISTINCT unnest(genres) as g FROM movies WHERE genres IS NOT NULL")
             raw_genres = [r["g"].strip().lower() for r in cur.fetchall() if r["g"]]
             all_genres = sorted(list(set(raw_genres)))
+
+    if len(all_genres) > 32:
+        raise RuntimeError(
+            f"Database has {len(all_genres)} distinct genres, exceeding the 32-genre limit of uint32 bitmask: {all_genres}"
+        )
 
     lang_to_code = {l: (i + 1) for i, l in enumerate(all_langs)}
     code_to_lang = {c: l for l, c in lang_to_code.items()}
@@ -145,9 +160,10 @@ def load_index() -> MetaIndex:
         n_movies=n,
     )
 
-    # Precompute direct meta-to-tag and meta-to-plot row alignments
+    # Precompute direct meta-to-tag, meta-to-plot, and tag-to-meta row alignments
     _META_TO_TAG_ROW = artifacts.tag_rows_for(ids)
     _META_TO_PLOT_ROW = artifacts.plot_rows_for(ids)
+    _TAG_TO_META_ROW = id_to_row.rows_for(artifacts.matrix_ids())
 
     t_load = time.perf_counter() - t0
     log.info(

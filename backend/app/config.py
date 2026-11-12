@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     k_plot: int = 5_000
     max_results: int = 200
     min_survivors: int = 1000
-    starvation_hard_cap: int = 300_000
+    starvation_hard_cap: int = 700_000
     tie_break_plot: bool = True
     tag_dense_matvec_threshold: int = 200_000
     suppress_boilerplate_plots: bool = True

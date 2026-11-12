@@ -101,14 +101,16 @@ def _ann(q, where: dict | None = None, timings: dict | None = None, k: int | Non
     return [tag_res, plot_res]
 
 
-def _matvec_tag(q, k: int, exclude: set[int]) -> tuple[np.ndarray, float]:
+def _matvec_tag(q, k: int, exclude: set[int], mask: np.ndarray | None = None) -> tuple[np.ndarray, float]:
     """Exact tag cosine over in-memory CSR tag matrix, saves full sims on q.tag_full_sims.
 
     Optimizations & tie-handling:
     - Dense float64 query vector: CSR @ dense releases GIL for BLAS kernels.
     - Precomputed inv_norms: elementwise multiply instead of boolean-mask division.
     - Zero-copy seed exclusion: temporarily marks excluded seeds as -1.0, restores after selection.
-    - Tie-aware boundary coverage: includes ALL candidates whose score >= kth score,
+    - Strictly positive similarity: candidates must have sims > 0 (prevents 1.06M 0-score ties).
+    - If mask is provided, candidates are filtered before top-k selection.
+    - Tie-aware boundary coverage: includes ALL candidates whose score >= kth score (with kth > 0),
       with a 30,000 safety cap keeping lowest movie IDs if exceeded.
     - Returns int64 numpy array directly without Python int conversion loops.
     """
@@ -137,23 +139,46 @@ def _matvec_tag(q, k: int, exclude: set[int]) -> tuple[np.ndarray, float]:
             orig_vals[r] = float(sims[r])
             sims[r] = -1.0
 
-    if k < len(sims):
-        kth = float(np.partition(sims, -k)[-k])
-        # Include all candidates whose score >= kth (excluding seeds marked -1.0)
-        idx = np.flatnonzero((sims >= kth) & (sims > -0.5))
-        cand_ids = tag_ids[idx]
-        cand_scores = sims[idx]
+    # Determine candidate search pool (apply mask if provided)
+    if mask is not None:
+        tag_to_meta = meta_index.tag_to_meta_row()
+        has_meta = tag_to_meta >= 0
+        tag_mask = np.zeros(len(tag_to_meta), dtype=bool)
+        tag_mask[has_meta] = mask[tag_to_meta[has_meta]]
+        pool_rows = np.flatnonzero(tag_mask)
+        pool_sims = sims[pool_rows]
+    else:
+        pool_rows = None
+        pool_sims = sims
+
+    n_pool = len(pool_sims)
+    if n_pool == 0:
+        top_sorted = np.empty(0, dtype=np.int64)
+    elif k < n_pool:
+        kth = float(np.partition(pool_sims, -k)[-k])
+        if kth > 0:
+            sub_idx = np.flatnonzero((pool_sims >= kth) & (pool_sims > 0))
+        else:
+            sub_idx = np.flatnonzero(pool_sims > 0)
+
+        chosen = pool_rows[sub_idx] if pool_rows is not None else sub_idx
+        cand_ids = tag_ids[chosen]
+        cand_scores = sims[chosen]
         order = np.lexsort((cand_ids, -cand_scores))
-        if len(idx) > 30_000:
+        if len(chosen) > 30_000:
             log.warning(
                 "Tag ties at kth=%.6f exceeded safety cap (%d > 30000); keeping lowest ids",
-                kth, len(idx)
+                kth, len(chosen)
             )
             order = order[:30_000]
-        top_sorted = idx[order]
+        top_sorted = chosen[order]
     else:
-        order = np.lexsort((tag_ids, -sims))
-        top_sorted = np.array([r for r in order if sims[r] > -0.5])
+        sub_idx = np.flatnonzero(pool_sims > 0)
+        chosen = pool_rows[sub_idx] if pool_rows is not None else sub_idx
+        cand_ids = tag_ids[chosen]
+        cand_scores = sims[chosen]
+        order = np.lexsort((cand_ids, -cand_scores))
+        top_sorted = chosen[order]
 
     tag_candidates = tag_ids[top_sorted]
 
@@ -165,7 +190,12 @@ def _matvec_tag(q, k: int, exclude: set[int]) -> tuple[np.ndarray, float]:
     return tag_candidates, dt
 
 
-def _generate_matvec(q, exclude: set[int], timings: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
+def _generate_matvec(
+    q,
+    exclude: set[int],
+    timings: dict | None = None,
+    mask: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     """Retrieves candidates using matvec tag and Chroma plot ANN concurrently on POOL."""
     has_tag = q.tag_sparse is not None
     has_plot = q.plot_centroid is not None
@@ -179,14 +209,14 @@ def _generate_matvec(q, exclude: set[int], timings: dict | None = None) -> tuple
     raw_tag = np.empty(0, dtype=np.int64)
     raw_plot = np.empty(0, dtype=np.int64)
 
-    def _run_plot():
+    def _run_plot(k_val: int = k_plot):
         t0 = time.perf_counter()
-        res = chroma.query_ids(settings.plots_collection, q.plot_centroid, k_plot)
+        res = chroma.query_ids(settings.plots_collection, q.plot_centroid, k_val)
         return np.asarray(res, dtype=np.int64), round(time.perf_counter() - t0, 4)
 
     if has_tag and has_plot:
-        fut_tag = POOL.submit(_matvec_tag, q, k_tag, exclude)
-        fut_plot = POOL.submit(_run_plot)
+        fut_tag = POOL.submit(_matvec_tag, q, k_tag, exclude, mask)
+        fut_plot = POOL.submit(_run_plot, k_plot)
         raw_tag, t_tag = fut_tag.result()
         raw_plot, t_plot = fut_plot.result()
         if timings is not None:
@@ -194,12 +224,12 @@ def _generate_matvec(q, exclude: set[int], timings: dict | None = None) -> tuple
             timings["ann_plot"] = t_plot
         log.debug("timing parallel matvec_tag=%.4fs ann_plot=%.4fs", t_tag, t_plot)
     elif has_tag:
-        raw_tag, t_tag = _matvec_tag(q, k_tag, exclude)
+        raw_tag, t_tag = _matvec_tag(q, k_tag, exclude, mask)
         if timings is not None:
             timings["matvec_tag"] = t_tag
         log.debug("timing matvec_tag=%.4fs (inline)", t_tag)
     elif has_plot:
-        raw_plot, t_plot = _run_plot()
+        raw_plot, t_plot = _run_plot(k_plot)
         if timings is not None:
             timings["ann_plot"] = t_plot
         log.debug("timing ann_plot=%.4fs (inline)", t_plot)
@@ -281,18 +311,12 @@ def generate(req, q, timings: dict | None = None) -> np.ndarray:
         plot_count = 0
 
         if settings.use_matvec_tag_candidates:
-            raw_tag, raw_plot = _generate_matvec(q, exclude, timings=timings)
+            raw_tag, raw_plot = _generate_matvec(q, exclude, timings=timings, mask=mask)
             t0 = time.perf_counter()
 
-            # Vectorized meta filter for raw_tag
-            meta_rows_tag = meta_index.rows_for(raw_tag)
-            valid_tag = meta_rows_tag >= 0
-            n_missing_tag = int(np.sum(~valid_tag))
-            if n_missing_tag > 0:
-                log.warning("Dropped %d candidate IDs missing from meta index", n_missing_tag)
-            keep_tag = np.zeros(len(raw_tag), dtype=bool)
-            keep_tag[valid_tag] = mask[meta_rows_tag[valid_tag]]
-            filtered_tag = raw_tag[keep_tag]
+            # raw_tag was selected directly from rows matching mask
+            filtered_tag = raw_tag
+            tag_count = len(filtered_tag)
 
             # Vectorized meta filter for raw_plot
             meta_rows_plot = meta_index.rows_for(raw_plot)
@@ -303,13 +327,36 @@ def generate(req, q, timings: dict | None = None) -> np.ndarray:
             keep_plot = np.zeros(len(raw_plot), dtype=bool)
             keep_plot[valid_plot] = mask[meta_rows_plot[valid_plot]]
             filtered_plot = raw_plot[keep_plot]
+            plot_count = len(filtered_plot)
+
+            # If survivors < min_survivors and there is a plot signal, query again with 4x k_plot (cap 20000)
+            has_plot = q.plot_centroid is not None
+            k_plot = getattr(settings, "k_plot", 2000)
+            if has_plot and plot_count < settings.min_survivors and k_plot < 20_000:
+                k_retry = min(4 * k_plot, 20_000)
+                log.info(
+                    "Plot survivors (%d) < min_survivors (%d); retrying Chroma with 4x k_plot (%d)",
+                    plot_count, settings.min_survivors, k_retry,
+                )
+                t_retry = time.perf_counter()
+                retry_plot_ids = np.asarray(
+                    chroma.query_ids(settings.plots_collection, q.plot_centroid, k_retry),
+                    dtype=np.int64,
+                )
+                dt_retry = round(time.perf_counter() - t_retry, 4)
+                if timings is not None and "ann_plot" in timings:
+                    timings["ann_plot"] = round(timings["ann_plot"] + dt_retry, 4)
+                m_rows_retry = meta_index.rows_for(retry_plot_ids)
+                val_retry = m_rows_retry >= 0
+                kp_retry = np.zeros(len(retry_plot_ids), dtype=bool)
+                kp_retry[val_retry] = mask[m_rows_retry[val_retry]]
+                filtered_plot = retry_plot_ids[kp_retry]
+                plot_count = len(filtered_plot)
+                log.info("After retry, plot survivors = %d", plot_count)
 
             filter_time = round(time.perf_counter() - t0, 4)
             if timings is not None:
                 timings["filter_ids"] = filter_time
-
-            tag_count = len(filtered_tag)
-            plot_count = len(filtered_plot)
 
             pool = _unique_ordered(filtered_tag, filtered_plot)
             if len(exclude) and len(pool):

@@ -5,6 +5,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
 os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "1")
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -24,25 +25,41 @@ from app.services import recommender
 from app.stores import artifacts, chroma, text_embedder, meta_index
 from app.api import movies, tags, recommend
 
+log = logging.getLogger(__name__)
+
 
 def _warmup() -> None:
     """Warm up recommendation pipeline on the REAL path with fixed synthetic requests."""
     rng = np.random.default_rng(42)
     all_ids = artifacts.matrix_ids()
+    id_to_row = artifacts.id_to_row()
+
+    # Check that seeds 238, 240, 278 exist in DB/tag matrix; otherwise use real ids from tag matrix
+    fixed_seeds = [238, 240, 278]
+    if not all(s in id_to_row for s in fixed_seeds):
+        fixed_seeds = all_ids[:3].tolist()
+        log.warning("Default warmup seeds missing from tag matrix, using fallback: %s", fixed_seeds)
 
     warmup_requests = [
-        RecommendRequest(movie_ids=[238, 240, 278], tag_weight=0.5),
+        RecommendRequest(movie_ids=fixed_seeds, tag_weight=0.5),
         RecommendRequest(movie_ids=rng.choice(all_ids, size=3, replace=False).tolist(), tag_weight=0.5),
         RecommendRequest(movie_ids=rng.choice(all_ids, size=3, replace=False).tolist(), tag_weight=0.5),
-        RecommendRequest(movie_ids=[238, 240, 278], plot_text="A dramatic story of crime, family loyalty, and redemption.", tag_weight=0.5),
+        RecommendRequest(movie_ids=fixed_seeds, plot_text="A dramatic story of crime, family loyalty, and redemption.", tag_weight=0.5),
         RecommendRequest(tags=[TagIn(tag_type="genres", name="Drama")], tag_weight=1.0),
     ]
 
+    successes = 0
     for req in warmup_requests:
         try:
             recommender.retrieve_and_rank(req)
+            successes += 1
         except Exception:
-            pass
+            log.exception("Warmup request failed for request: %s", req)
+
+    log.info("Warmup complete: %d / %d requests succeeded", successes, len(warmup_requests))
+
+    if settings.app_env == "prod" and successes == 0:
+        raise RuntimeError("No warmup requests succeeded at boot in production")
 
 
 @asynccontextmanager
