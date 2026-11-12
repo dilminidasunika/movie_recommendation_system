@@ -28,7 +28,7 @@ from app.api import movies, tags, recommend
 def _warmup() -> None:
     """Warm up recommendation pipeline on the REAL path with fixed synthetic requests."""
     rng = np.random.default_rng(42)
-    all_ids = list(artifacts.id_to_row().keys())
+    all_ids = artifacts.matrix_ids()
 
     warmup_requests = [
         RecommendRequest(movie_ids=[238, 240, 278], tag_weight=0.5),

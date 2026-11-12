@@ -15,7 +15,7 @@ class TestMissingPlotEmbedding(unittest.TestCase):
     def test_missing_plot_embedding_scoring(self):
         """Verify movies missing from the plot memmap have plot_ok=False and no zero-penalty on tag score."""
         emb, id_to_r = artifacts.plot_memmap()
-        valid_plot_id = next(iter(id_to_r.keys()))
+        valid_plot_id = int(id_to_r.sorted_ids[0])
         missing_plot_id = 999_999_999  # Guaranteed absent from plot memmap
 
         self.assertIn(valid_plot_id, id_to_r)
@@ -31,8 +31,8 @@ class TestMissingPlotEmbedding(unittest.TestCase):
         q = query_builder.build(req)
 
         scores = scoring.score([valid_plot_id, missing_plot_id], q)
-        idx_missing = scores.ids.index(missing_plot_id)
-        idx_valid = scores.ids.index(valid_plot_id)
+        idx_missing = list(scores.ids).index(missing_plot_id)
+        idx_valid = list(scores.ids).index(valid_plot_id)
 
         self.assertFalse(scores.plot_ok[idx_missing])
         self.assertEqual(scores.plot[idx_missing], 0.0)
@@ -50,9 +50,9 @@ class TestMissingPlotEmbedding(unittest.TestCase):
 
     def test_neither_signal_dropped(self):
         """Movies with neither tag nor plot data are assigned -1 and dropped by fusion."""
-        ids = [123456789]
-        tag = np.array([0.0])
-        plot = np.array([0.0])
+        ids = np.array([123456789], dtype=np.int64)
+        tag = np.array([0.0], dtype=np.float32)
+        plot = np.array([0.0], dtype=np.float32)
         tag_ok = np.array([False])
         plot_ok = np.array([False])
 

@@ -15,7 +15,7 @@ from app.stores import chroma, meta_index, artifacts
 log = logging.getLogger(__name__)
 
 
-def _interleave(lists: list[list[int]], cap: int, exclude: set[int]) -> list[int]:
+def _interleave(lists: list[list[int]], cap: int, exclude: set[int]) -> np.ndarray:
     """Round-robin over ranked lists, dedupe, skip excluded, stop at cap."""
     seen: set[int] = set()
     out: list[int] = []
@@ -26,8 +26,19 @@ def _interleave(lists: list[list[int]], cap: int, exclude: set[int]) -> list[int
             seen.add(i)
             out.append(i)
             if len(out) >= cap:
-                return out
-    return out
+                return np.array(out, dtype=np.int64)
+    return np.array(out, dtype=np.int64)
+
+
+def _unique_ordered(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
+    """Concatenate two int64 arrays, deduplicating while preserving first-seen order."""
+    if len(arr1) == 0:
+        return arr2
+    if len(arr2) == 0:
+        return arr1
+    combined = np.concatenate([arr1, arr2])
+    _, idx = np.unique(combined, return_index=True)
+    return combined[np.sort(idx)]
 
 
 def _ann(q, where: dict | None = None, timings: dict | None = None, k: int | None = None) -> list[list[int]]:
@@ -90,7 +101,7 @@ def _ann(q, where: dict | None = None, timings: dict | None = None, k: int | Non
     return [tag_res, plot_res]
 
 
-def _matvec_tag(q, k: int, exclude: set[int]) -> tuple[list[int], float]:
+def _matvec_tag(q, k: int, exclude: set[int]) -> tuple[np.ndarray, float]:
     """Exact tag cosine over in-memory CSR tag matrix, saves full sims on q.tag_full_sims.
 
     Optimizations & tie-handling:
@@ -99,6 +110,7 @@ def _matvec_tag(q, k: int, exclude: set[int]) -> tuple[list[int], float]:
     - Zero-copy seed exclusion: temporarily marks excluded seeds as -1.0, restores after selection.
     - Tie-aware boundary coverage: includes ALL candidates whose score >= kth score,
       with a 30,000 safety cap keeping lowest movie IDs if exceeded.
+    - Returns int64 numpy array directly without Python int conversion loops.
     """
     t0 = time.perf_counter()
     tag_m = artifacts.tag_matrix()
@@ -143,7 +155,7 @@ def _matvec_tag(q, k: int, exclude: set[int]) -> tuple[list[int], float]:
         order = np.lexsort((tag_ids, -sims))
         top_sorted = np.array([r for r in order if sims[r] > -0.5])
 
-    tag_candidates = [int(tag_ids[r]) for r in top_sorted]
+    tag_candidates = tag_ids[top_sorted]
 
     # Restore excluded seed scores so q.tag_full_sims remains true similarities
     for r, val in orig_vals.items():
@@ -153,24 +165,24 @@ def _matvec_tag(q, k: int, exclude: set[int]) -> tuple[list[int], float]:
     return tag_candidates, dt
 
 
-def _generate_matvec(q, exclude: set[int], timings: dict | None = None) -> tuple[list[int], list[int]]:
+def _generate_matvec(q, exclude: set[int], timings: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Retrieves candidates using matvec tag and Chroma plot ANN concurrently on POOL."""
     has_tag = q.tag_sparse is not None
     has_plot = q.plot_centroid is not None
 
     if not has_tag and not has_plot:
-        return [], []
+        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
 
     k_tag = getattr(settings, "k_tag", 2000)
     k_plot = getattr(settings, "k_plot", 2000)
 
-    raw_tag: list[int] = []
-    raw_plot: list[int] = []
+    raw_tag = np.empty(0, dtype=np.int64)
+    raw_plot = np.empty(0, dtype=np.int64)
 
     def _run_plot():
         t0 = time.perf_counter()
         res = chroma.query_ids(settings.plots_collection, q.plot_centroid, k_plot)
-        return res, round(time.perf_counter() - t0, 4)
+        return np.asarray(res, dtype=np.int64), round(time.perf_counter() - t0, 4)
 
     if has_tag and has_plot:
         fut_tag = POOL.submit(_matvec_tag, q, k_tag, exclude)
@@ -195,22 +207,33 @@ def _generate_matvec(q, exclude: set[int], timings: dict | None = None) -> tuple
     return raw_tag, raw_plot
 
 
-def generate(req, q, timings: dict | None = None) -> list[int]:
-    """Candidate generation using in-memory metadata mask and parallel ANN or matvec."""
+def generate(req, q, timings: dict | None = None) -> np.ndarray:
+    """Candidate generation using vectorized metadata mask and parallel ANN or matvec.
+    Keeps candidates as a numpy int64 array throughout.
+    """
     f = Filters.from_request(req)
     exclude = set(q.movie_ids)
+    q._meta_rows = None
 
     # No filters: skip gate/mask entirely
     if not f.active:
         if settings.use_matvec_tag_candidates:
             raw_tag, raw_plot = _generate_matvec(q, exclude, timings=timings)
-            pool = list(dict.fromkeys(raw_tag + raw_plot))
-            pool = [mid for mid in pool if mid not in exclude]
+            pool = _unique_ordered(raw_tag, raw_plot)
+            if len(exclude) and len(pool):
+                pool = pool[~np.isin(pool, np.array(list(exclude), dtype=np.int64))]
             log.debug("branch=no_filters matvec_tag pool=%d", len(pool))
             return pool
         if settings.use_uncapped_pool:
             raw_lists = _ann(q, None, timings=timings, k=settings.ann_k)
-            pool = list(dict.fromkeys(i for lst in raw_lists for i in lst if i not in exclude))
+            combined = np.array([i for lst in raw_lists for i in lst], dtype=np.int64)
+            if len(combined):
+                _, first_idx = np.unique(combined, return_index=True)
+                pool = combined[np.sort(first_idx)]
+            else:
+                pool = np.empty(0, dtype=np.int64)
+            if len(exclude) and len(pool):
+                pool = pool[~np.isin(pool, np.array(list(exclude), dtype=np.int64))]
             log.debug("branch=no_filters uncapped_pool=%d", len(pool))
             return pool
         pool = _interleave(_ann(q, None, timings=timings), settings.pool_cap, exclude)
@@ -233,12 +256,19 @@ def generate(req, q, timings: dict | None = None) -> list[int]:
                 timings["ann_tag"] = 0.0
                 timings["ann_plot"] = 0.0
                 timings["filter_ids"] = 0.0
-            return []
+            return np.empty(0, dtype=np.int64)
 
         # Small/Exact branch: whole filtered set is the pool, no ANN needed
         if n_matches <= settings.exact_limit:
-            matching_ids = idx.ids[mask]
-            pool = [int(mid) for mid in matching_ids if mid not in exclude]
+            meta_rows = np.flatnonzero(mask)
+            matching_ids = idx.ids[meta_rows]
+            if len(exclude) and len(matching_ids):
+                keep_mask = ~np.isin(matching_ids, np.array(list(exclude), dtype=np.int64))
+                pool = matching_ids[keep_mask]
+                q._meta_rows = meta_rows[keep_mask]
+            else:
+                pool = matching_ids
+                q._meta_rows = meta_rows
             if timings is not None:
                 timings["ann_tag"] = 0.0
                 timings["ann_plot"] = 0.0
@@ -247,30 +277,75 @@ def generate(req, q, timings: dict | None = None) -> list[int]:
             return pool
 
         # Large branch: n_matches > exact_limit
-        i2r = idx.id_to_row
+        tag_count = 0
+        plot_count = 0
+
         if settings.use_matvec_tag_candidates:
             raw_tag, raw_plot = _generate_matvec(q, exclude, timings=timings)
             t0 = time.perf_counter()
-            filtered_tag = [mid for mid in raw_tag if mask[i2r[mid]]]
-            filtered_plot = [mid for mid in raw_plot if mask[i2r[mid]]]
+
+            # Vectorized meta filter for raw_tag
+            meta_rows_tag = meta_index.rows_for(raw_tag)
+            valid_tag = meta_rows_tag >= 0
+            n_missing_tag = int(np.sum(~valid_tag))
+            if n_missing_tag > 0:
+                log.warning("Dropped %d candidate IDs missing from meta index", n_missing_tag)
+            keep_tag = np.zeros(len(raw_tag), dtype=bool)
+            keep_tag[valid_tag] = mask[meta_rows_tag[valid_tag]]
+            filtered_tag = raw_tag[keep_tag]
+
+            # Vectorized meta filter for raw_plot
+            meta_rows_plot = meta_index.rows_for(raw_plot)
+            valid_plot = meta_rows_plot >= 0
+            n_missing_plot = int(np.sum(~valid_plot))
+            if n_missing_plot > 0:
+                log.warning("Dropped %d candidate IDs missing from meta index", n_missing_plot)
+            keep_plot = np.zeros(len(raw_plot), dtype=bool)
+            keep_plot[valid_plot] = mask[meta_rows_plot[valid_plot]]
+            filtered_plot = raw_plot[keep_plot]
+
             filter_time = round(time.perf_counter() - t0, 4)
             if timings is not None:
                 timings["filter_ids"] = filter_time
-            pool = list(dict.fromkeys(filtered_tag + filtered_plot))
-            pool = [mid for mid in pool if mid not in exclude]
-            log.debug("branch=large matvec_tag n_matches=%d pool=%d", n_matches, len(pool))
-            return pool
 
-        if settings.use_uncapped_pool:
+            tag_count = len(filtered_tag)
+            plot_count = len(filtered_plot)
+
+            pool = _unique_ordered(filtered_tag, filtered_plot)
+            if len(exclude) and len(pool):
+                pool = pool[~np.isin(pool, np.array(list(exclude), dtype=np.int64))]
+            log.debug("branch=large matvec_tag n_matches=%d pool=%d", n_matches, len(pool))
+
+        elif settings.use_uncapped_pool:
             raw_lists = _ann(q, where=None, timings=timings, k=settings.ann_k)
             t0 = time.perf_counter()
-            filtered_lists = []
+            filtered_parts = []
             for lst in raw_lists:
-                filtered_lists.append([mid for mid in lst if mask[i2r[mid]]])
+                arr = np.asarray(lst, dtype=np.int64)
+                m_rows = meta_index.rows_for(arr)
+                val = m_rows >= 0
+                n_miss = int(np.sum(~val))
+                if n_miss > 0:
+                    log.warning("Dropped %d candidate IDs missing from meta index", n_miss)
+                kp = np.zeros(len(arr), dtype=bool)
+                kp[val] = mask[m_rows[val]]
+                filtered_parts.append(arr[kp])
             filter_time = round(time.perf_counter() - t0, 4)
             if timings is not None:
                 timings["filter_ids"] = filter_time
-            pool = list(dict.fromkeys(mid for lst in filtered_lists for mid in lst if mid not in exclude))
+
+            tag_count = len(filtered_parts[0]) if len(filtered_parts) > 0 else 0
+            plot_count = len(filtered_parts[1]) if len(filtered_parts) > 1 else 0
+
+            combined = np.concatenate(filtered_parts) if filtered_parts else np.empty(0, dtype=np.int64)
+            if len(combined):
+                _, first_idx = np.unique(combined, return_index=True)
+                pool = combined[np.sort(first_idx)]
+            else:
+                pool = np.empty(0, dtype=np.int64)
+            if len(exclude) and len(pool):
+                pool = pool[~np.isin(pool, np.array(list(exclude), dtype=np.int64))]
+
         else:
             # Escalating unfiltered ANN schedule (k=2000 -> 8000 -> 20000) + fast bitmask filtering
             target = settings.pool_cap
@@ -282,7 +357,12 @@ def generate(req, q, timings: dict | None = None) -> list[int]:
                 t0 = time.perf_counter()
                 filtered_lists = []
                 for lst in raw_lists:
-                    filtered_lists.append([mid for mid in lst if mask[i2r[mid]]])
+                    arr = np.asarray(lst, dtype=np.int64)
+                    m_rows = meta_index.rows_for(arr)
+                    val = m_rows >= 0
+                    kp = np.zeros(len(arr), dtype=bool)
+                    kp[val] = mask[m_rows[val]]
+                    filtered_lists.append(arr[kp].tolist())
                 filter_time = round(time.perf_counter() - t0, 4)
                 if timings is not None:
                     timings["filter_ids"] = filter_time
@@ -296,9 +376,7 @@ def generate(req, q, timings: dict | None = None) -> list[int]:
 
         # Starvation check: if either signal has fewer than min_survivors or pool < pool_cap
         min_surv = settings.min_survivors
-        tag_count = len(filtered_lists[0]) if len(filtered_lists) > 0 else 0
-        plot_count = len(filtered_lists[1]) if len(filtered_lists) > 1 else 0
-        has_tag = q.tag_ann is not None
+        has_tag = q.tag_ann is not None or q.tag_sparse is not None
         has_plot = q.plot_centroid is not None
 
         is_starved = (
@@ -313,8 +391,14 @@ def generate(req, q, timings: dict | None = None) -> list[int]:
                     "Starvation fallback triggered (tag=%d, plot=%d, pool=%d); using exact masked set (%d rows)",
                     tag_count, plot_count, len(pool), n_matches,
                 )
-                matching_ids = idx.ids[mask]
-                return [int(mid) for mid in matching_ids if mid not in exclude]
+                meta_rows = np.flatnonzero(mask)
+                matching_ids = idx.ids[meta_rows]
+                if len(exclude):
+                    keep_mask = ~np.isin(matching_ids, np.array(list(exclude), dtype=np.int64))
+                    q._meta_rows = meta_rows[keep_mask]
+                    return matching_ids[keep_mask]
+                q._meta_rows = meta_rows
+                return matching_ids
             else:
                 log.warning(
                     "Starvation detected (tag=%d, plot=%d, pool=%d) but n_matches (%d) exceeds hard cap (%d)",
@@ -330,17 +414,17 @@ def generate(req, q, timings: dict | None = None) -> list[int]:
         if timings is not None:
             timings["gate"] = gate_time
         if len(gate) <= settings.exact_limit:
-            pool = [i for i in gate if i not in exclude]
-            return pool
+            p_arr = np.asarray([i for i in gate if i not in exclude], dtype=np.int64)
+            return p_arr
         if settings.use_matvec_tag_candidates:
             raw_tag, raw_plot = _generate_matvec(q, exclude, timings=timings)
-            union = list(dict.fromkeys(raw_tag + raw_plot))
+            union = _unique_ordered(raw_tag, raw_plot)
             t0 = time.perf_counter()
-            keep = queries.filter_ids(union, f)
+            keep = set(queries.filter_ids(union.tolist(), f))
             if timings is not None:
                 timings["filter_ids"] = round(time.perf_counter() - t0, 4)
-            pool = [mid for mid in union if mid in keep and mid not in exclude]
-            return pool
+            p_arr = np.asarray([mid for mid in union if mid in keep and mid not in exclude], dtype=np.int64)
+            return p_arr
         where = chroma.build_where(
             list(f.languages),
             f.date_from.year if f.date_from else None,
@@ -349,7 +433,7 @@ def generate(req, q, timings: dict | None = None) -> list[int]:
         lists = _ann(q, where, timings=timings)
         union = list(dict.fromkeys(i for lst in lists for i in lst))
         t0 = time.perf_counter()
-        keep = queries.filter_ids(union, f)
+        keep = set(queries.filter_ids(union, f))
         if timings is not None:
             timings["filter_ids"] = round(time.perf_counter() - t0, 4)
         lists = [[i for i in lst if i in keep] for lst in lists]

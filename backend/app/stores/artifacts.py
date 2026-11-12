@@ -11,18 +11,73 @@ from app.config import settings
 
 log = logging.getLogger(__name__)
 
-TAG_MATRIX = "tag_matrix.npz"        # CSR, rows aligned with matrix_ids.npy
+TAG_MATRIX = "tag_matrix.npz"                  # CSR, rows aligned with matrix_ids.npy
 MATRIX_IDS = "tag_matrix_movie_ids.npy"        # int64 movie ids, one per row
 VECTORIZER_HIGH = "tag_vectorizer_high.joblib"  # fitted CountVectorizer for HIGH_FIELDS
 VECTORIZER_MID  = "tag_vectorizer_mid.joblib"   # fitted CountVectorizer for MID_FIELDS
-VECTORIZER_LOW  = "tag_vectorizer_low.joblib"    # fitted CountVectorizer for LOW_FIELDS
+VECTORIZER_LOW  = "tag_vectorizer_low.joblib"   # fitted CountVectorizer for LOW_FIELDS
 SVD = "tag_svd_model.joblib"                   # fitted TruncatedSVD
-PLOT_EMB = "plot_embeddings.npy"     # optional runtime use only (memmap path)
+PLOT_EMB = "plot_embeddings.npy"               # optional runtime use only (memmap path)
 PLOT_IDS = "plot_embeddings_movie_ids.npy"     # int64 movie ids, one per row
 
 
 def _p(name: str):
     return settings.artifact_path / name
+
+
+class SortedIdIndex:
+    """Vectorized ID-to-row index using sorted IDs and np.searchsorted.
+
+    Eliminates Python dict overhead (~80-100 MB per 1M items) while providing
+    O(log N) vectorized lookups and drop-in dict compatibility (__contains__,
+    __getitem__, get, keys, len).
+    """
+    __slots__ = ("sorted_ids", "order")
+
+    def __init__(self, ids: np.ndarray):
+        ids = np.asarray(ids, dtype=np.int64)
+        self.order = np.argsort(ids, kind="stable").astype(np.int32)
+        self.sorted_ids = ids[self.order]
+
+    def rows_for(self, query_ids) -> np.ndarray:
+        """Vectorized lookup: returns int32 row indices, with -1 for absent IDs."""
+        q = np.asarray(query_ids, dtype=np.int64)
+        if q.size == 0:
+            return np.empty(q.shape, dtype=np.int32)
+        idx = np.searchsorted(self.sorted_ids, q)
+        in_bounds = idx < len(self.sorted_ids)
+        valid = in_bounds & (self.sorted_ids[np.where(in_bounds, idx, 0)] == q)
+        res = np.full(q.shape, -1, dtype=np.int32)
+        res[valid] = self.order[idx[valid]]
+        return res
+
+    def __contains__(self, item) -> bool:
+        try:
+            mid = int(item)
+        except (ValueError, TypeError):
+            return False
+        idx = np.searchsorted(self.sorted_ids, mid)
+        return idx < len(self.sorted_ids) and self.sorted_ids[idx] == mid
+
+    def __getitem__(self, item) -> int:
+        mid = int(item)
+        idx = np.searchsorted(self.sorted_ids, mid)
+        if idx < len(self.sorted_ids) and self.sorted_ids[idx] == mid:
+            return int(self.order[idx])
+        raise KeyError(item)
+
+    def get(self, item, default=None):
+        mid = int(item)
+        idx = np.searchsorted(self.sorted_ids, mid)
+        if idx < len(self.sorted_ids) and self.sorted_ids[idx] == mid:
+            return int(self.order[idx])
+        return default
+
+    def __len__(self) -> int:
+        return len(self.sorted_ids)
+
+    def keys(self):
+        return self.sorted_ids
 
 
 @lru_cache(maxsize=1)
@@ -38,8 +93,18 @@ def matrix_ids() -> np.ndarray:
 
 
 @lru_cache(maxsize=1)
-def id_to_row() -> dict[int, int]:
-    return {int(i): r for r, i in enumerate(matrix_ids())}
+def tag_index() -> SortedIdIndex:
+    return SortedIdIndex(matrix_ids())
+
+
+def id_to_row() -> SortedIdIndex:
+    """Returns the vectorized ID-to-row index for the tag matrix."""
+    return tag_index()
+
+
+def tag_rows_for(ids) -> np.ndarray:
+    """Vectorized lookup for tag matrix rows (-1 if absent)."""
+    return tag_index().rows_for(ids)
 
 
 @lru_cache(maxsize=1)
@@ -76,23 +141,40 @@ def svd_transform_sparse(x_csr: sp.csr_matrix | None) -> np.ndarray:
 
 
 @lru_cache(maxsize=1)
+def plot_ids() -> np.ndarray:
+    return np.load(_p(PLOT_IDS))
+
+
+@lru_cache(maxsize=1)
+def plot_index() -> SortedIdIndex:
+    return SortedIdIndex(plot_ids())
+
+
+def plot_rows_for(ids) -> np.ndarray:
+    """Vectorized lookup for plot memmap rows (-1 if absent)."""
+    return plot_index().rows_for(ids)
+
+
+@lru_cache(maxsize=1)
 def plot_memmap():
     emb = np.load(_p(PLOT_EMB), mmap_mode="r")
-    ids = np.load(_p(PLOT_IDS))
-    return emb, {int(i): r for r, i in enumerate(ids)}
+    return emb, plot_index()
 
 
-def get_plot_embeddings(movie_ids: list[int]) -> dict[int, np.ndarray]:
-    emb, id_to_r = plot_memmap()
-    unique_ids = list(dict.fromkeys(movie_ids))
-    pairs = [(mid, id_to_r[mid]) for mid in unique_ids if mid in id_to_r]
-    if not pairs:
+def get_plot_embeddings(movie_ids: list[int] | np.ndarray) -> dict[int, np.ndarray]:
+    emb, idx = plot_memmap()
+    mids = np.asarray(movie_ids, dtype=np.int64)
+    rows = idx.rows_for(mids)
+    valid = rows >= 0
+    if not np.any(valid):
         return {}
-    pairs.sort(key=lambda x: x[1])
-    sorted_rows = [p[1] for p in pairs]
-    sorted_mids = [p[0] for p in pairs]
+    valid_mids = mids[valid]
+    valid_rows = rows[valid]
+    order = np.argsort(valid_rows)
+    sorted_rows = valid_rows[order]
+    sorted_mids = valid_mids[order]
     vecs = np.asarray(emb[sorted_rows], dtype=np.float32)
-    return {mid: vecs[i] for i, mid in enumerate(sorted_mids)}
+    return {int(mid): vecs[i] for i, mid in enumerate(sorted_mids)}
 
 
 @lru_cache(maxsize=1)
@@ -125,7 +207,8 @@ def load_all() -> None:
         raise RuntimeError(f"vocab {total_vocab} != matrix cols {m.shape[1]}")
     if not settings.use_matvec_tag_candidates:
         svd()
-    id_to_row()
+    tag_index()
+    plot_index()
     emb, _ = plot_memmap()
     _ = np.sum(emb[:, 0])  # pre-fault plot memmap into OS page cache
     row_norms()             # pre-compute and cache row norms

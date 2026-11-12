@@ -1,4 +1,5 @@
 import time
+import numpy as np
 from app.config import settings
 from app.schemas import RecommendRequest
 from app.services import query_builder, candidates, scoring, fusion
@@ -27,7 +28,7 @@ def retrieve_and_rank(req: RecommendRequest) -> dict:
     if q.missing_plot_ids:
         warnings.append(f"No plot data for movies {q.missing_plot_ids}; ignored for plot similarity.")
 
-    if not pool_ids:
+    if len(pool_ids) == 0:
         timings["total"] = round(time.perf_counter() - t_start, 4)
         return {"ranked": [], "pool_size": 0, "warnings": warnings,
                 "timings": timings, "query": q}
@@ -48,6 +49,8 @@ def retrieve_and_rank(req: RecommendRequest) -> dict:
     q.tag_sparse = None
     q.tag_ann = None
     q.plot_centroid = None
+    if hasattr(q, "_meta_rows"):
+        q._meta_rows = None
 
     return {"ranked": ranked, "pool_size": len(pool_ids), "warnings": warnings,
             "timings": timings, "query": q}

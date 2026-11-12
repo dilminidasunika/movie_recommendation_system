@@ -2,19 +2,21 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import NamedTuple
+from typing import NamedTuple, Any
 
 import numpy as np
 
 from app.db.pool import current_pool
 from app.db.queries import Filters
+from app.stores import artifacts
+from app.stores.artifacts import SortedIdIndex
 
 log = logging.getLogger(__name__)
 
 
 class MetaIndex(NamedTuple):
     ids: np.ndarray             # int64, shape (N,)
-    id_to_row: dict[int, int]   # movie_id -> row index
+    id_to_row: Any              # SortedIdIndex mapping movie_id -> row index (vectorized)
     languages: np.ndarray       # uint16, shape (N,)
     lang_to_code: dict[str, int]
     code_to_lang: dict[int, str]
@@ -27,11 +29,37 @@ class MetaIndex(NamedTuple):
 
 
 _INDEX: MetaIndex | None = None
+_META_TO_TAG_ROW: np.ndarray | None = None
+_META_TO_PLOT_ROW: np.ndarray | None = None
+
+
+def meta_to_tag_row() -> np.ndarray:
+    """Precomputed mapping from meta_index row to tag_matrix row (-1 if absent)."""
+    global _META_TO_TAG_ROW
+    if _META_TO_TAG_ROW is None:
+        idx = get_index()
+        _META_TO_TAG_ROW = artifacts.tag_rows_for(idx.ids)
+    return _META_TO_TAG_ROW
+
+
+def meta_to_plot_row() -> np.ndarray:
+    """Precomputed mapping from meta_index row to plot_memmap row (-1 if absent)."""
+    global _META_TO_PLOT_ROW
+    if _META_TO_PLOT_ROW is None:
+        idx = get_index()
+        _META_TO_PLOT_ROW = artifacts.plot_rows_for(idx.ids)
+    return _META_TO_PLOT_ROW
+
+
+def rows_for(query_ids) -> np.ndarray:
+    """Vectorized lookup: returns meta_index row indices for query_ids (-1 if absent)."""
+    idx = get_index()
+    return idx.id_to_row.rows_for(query_ids)
 
 
 def load_index() -> MetaIndex:
     """Stream movies metadata from Postgres and build fast in-memory numpy index."""
-    global _INDEX
+    global _INDEX, _META_TO_TAG_ROW, _META_TO_PLOT_ROW
     t0 = time.perf_counter()
     log.info("Loading MetaIndex from Postgres...")
 
@@ -98,7 +126,7 @@ def load_index() -> MetaIndex:
     years = np.array(year_list, dtype=np.int16)
     dates = np.array(date_list, dtype=np.int32)
     genres = np.array(genre_list, dtype=np.uint32)
-    id_to_row = {mid: i for i, mid in enumerate(id_list)}
+    id_to_row = SortedIdIndex(ids)
 
     bytes_total = ids.nbytes + languages.nbytes + years.nbytes + dates.nbytes + genres.nbytes
     mb_arrays = bytes_total / (1024 * 1024)
@@ -116,6 +144,10 @@ def load_index() -> MetaIndex:
         bit_to_genre=bit_to_genre,
         n_movies=n,
     )
+
+    # Precompute direct meta-to-tag and meta-to-plot row alignments
+    _META_TO_TAG_ROW = artifacts.tag_rows_for(ids)
+    _META_TO_PLOT_ROW = artifacts.plot_rows_for(ids)
 
     t_load = time.perf_counter() - t0
     log.info(
@@ -177,21 +209,19 @@ def mask_for(f: Filters) -> np.ndarray:
     return mask
 
 
-def filter_ids_with_mask(candidate_ids: list[int], f: Filters) -> list[int]:
+def filter_ids_with_mask(candidate_ids: list[int] | np.ndarray, f: Filters) -> list[int] | np.ndarray:
     """Fast in-memory filter for candidate IDs using the meta index mask."""
-    if not candidate_ids:
-        return []
+    if len(candidate_ids) == 0:
+        return candidate_ids
     if not f.active:
         return candidate_ids
 
     idx = get_index()
-    # If filter is empty or matches nothing
     mask = mask_for(f)
-    i2r = idx.id_to_row
-
-    out = []
-    for mid in candidate_ids:
-        row = i2r.get(mid)
-        if row is not None and mask[row]:
-            out.append(mid)
-    return out
+    c_arr = np.asarray(candidate_ids, dtype=np.int64)
+    rows = idx.id_to_row.rows_for(c_arr)
+    valid = rows >= 0
+    keep = np.zeros(len(c_arr), dtype=bool)
+    keep[valid] = mask[rows[valid]]
+    res = c_arr[keep]
+    return res if isinstance(candidate_ids, np.ndarray) else res.tolist()
