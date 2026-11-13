@@ -26,19 +26,30 @@ def fuse(s, tag_weight: float, top_n: int, tie_break_plot: bool | None = None) -
     if tie_break_plot is None:
         tie_break_plot = getattr(settings, "tie_break_plot", False)
 
+    valid = np.flatnonzero(final > 0)
+    if len(valid) == 0:
+        return []
+
     ids = np.asarray(s.ids)
+    sub_ids = ids[valid]
+    sub_final = final[valid]
+    sub_pn = pn[valid]
+    sub_tn = tn[valid]
+
     if tie_break_plot:
         # order by final score desc, plot score desc, id asc
-        order = np.lexsort((ids, -pn, -final))[:top_n]
+        sub_order = np.lexsort((sub_ids, -sub_pn, -sub_final))[:top_n]
     else:
-        order = np.lexsort((ids, -final))[:top_n]
+        sub_order = np.lexsort((sub_ids, -sub_final))[:top_n]
+
+    chosen = valid[sub_order]
 
     return [
         {
-            "movie_id": int(s.ids[i]),
+            "movie_id": int(ids[i]),
             "final_score": round(float(final[i]), 6),
             "tag_score": round(float(tn[i]), 6),
             "plot_score": round(float(pn[i]), 6),
         }
-        for i in order if final[i] >= 0
+        for i in chosen
     ]

@@ -195,10 +195,11 @@ def _generate_matvec(
     exclude: set[int],
     timings: dict | None = None,
     mask: np.ndarray | None = None,
+    tag_weight: float = 0.5,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Retrieves candidates using matvec tag and Chroma plot ANN concurrently on POOL."""
-    has_tag = q.tag_sparse is not None
-    has_plot = q.plot_centroid is not None
+    has_tag = (q.tag_sparse is not None) and (tag_weight > 0.0)
+    has_plot = (q.plot_centroid is not None) and (tag_weight < 1.0)
 
     if not has_tag and not has_plot:
         return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.int64)
@@ -244,11 +245,12 @@ def generate(req, q, timings: dict | None = None) -> np.ndarray:
     f = Filters.from_request(req)
     exclude = set(q.movie_ids)
     q._meta_rows = None
+    tag_weight = getattr(req, "tag_weight", 0.5)
 
     # No filters: skip gate/mask entirely
     if not f.active:
         if settings.use_matvec_tag_candidates:
-            raw_tag, raw_plot = _generate_matvec(q, exclude, timings=timings)
+            raw_tag, raw_plot = _generate_matvec(q, exclude, timings=timings, tag_weight=tag_weight)
             pool = _unique_ordered(raw_tag, raw_plot)
             if len(exclude) and len(pool):
                 pool = pool[~np.isin(pool, np.array(list(exclude), dtype=np.int64))]
@@ -311,7 +313,7 @@ def generate(req, q, timings: dict | None = None) -> np.ndarray:
         plot_count = 0
 
         if settings.use_matvec_tag_candidates:
-            raw_tag, raw_plot = _generate_matvec(q, exclude, timings=timings, mask=mask)
+            raw_tag, raw_plot = _generate_matvec(q, exclude, timings=timings, mask=mask, tag_weight=tag_weight)
             t0 = time.perf_counter()
 
             # raw_tag was selected directly from rows matching mask
@@ -330,7 +332,7 @@ def generate(req, q, timings: dict | None = None) -> np.ndarray:
             plot_count = len(filtered_plot)
 
             # If survivors < min_survivors and there is a plot signal, query again with 4x k_plot (cap 20000)
-            has_plot = q.plot_centroid is not None
+            has_plot = (q.plot_centroid is not None) and (tag_weight < 1.0)
             k_plot = getattr(settings, "k_plot", 2000)
             if has_plot and plot_count < settings.min_survivors and k_plot < 20_000:
                 k_retry = min(4 * k_plot, 20_000)
@@ -423,8 +425,8 @@ def generate(req, q, timings: dict | None = None) -> np.ndarray:
 
         # Starvation check: if either signal has fewer than min_survivors or pool < pool_cap
         min_surv = settings.min_survivors
-        has_tag = q.tag_ann is not None or q.tag_sparse is not None
-        has_plot = q.plot_centroid is not None
+        has_tag = (q.tag_ann is not None or q.tag_sparse is not None) and (tag_weight > 0.0)
+        has_plot = (q.plot_centroid is not None) and (tag_weight < 1.0)
 
         is_starved = (
             (has_tag and tag_count < min_surv) or
@@ -464,7 +466,7 @@ def generate(req, q, timings: dict | None = None) -> np.ndarray:
             p_arr = np.asarray([i for i in gate if i not in exclude], dtype=np.int64)
             return p_arr
         if settings.use_matvec_tag_candidates:
-            raw_tag, raw_plot = _generate_matvec(q, exclude, timings=timings)
+            raw_tag, raw_plot = _generate_matvec(q, exclude, timings=timings, tag_weight=tag_weight)
             union = _unique_ordered(raw_tag, raw_plot)
             t0 = time.perf_counter()
             keep = set(queries.filter_ids(union.tolist(), f))

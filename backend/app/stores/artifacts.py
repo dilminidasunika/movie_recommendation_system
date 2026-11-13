@@ -159,9 +159,27 @@ def plot_rows_for(ids) -> np.ndarray:
 def plot_suppressed() -> np.ndarray:
     """Bool mask aligned with plot memmap rows: True = boilerplate/suppressed."""
     p = _p("plot_suppressed.npy")
+    expected_rows = plot_ids().shape[0]
+
+    if getattr(settings, "suppress_boilerplate_plots", True):
+        if not p.exists():
+            raise RuntimeError(
+                f"Boilerplate plot suppression is enabled (suppress_boilerplate_plots=True) "
+                f"but artifact '{p}' does not exist. Run backend/scripts/build_plot_suppressed.py to generate it."
+            )
+        arr = np.load(p)
+        if len(arr) != expected_rows:
+            raise RuntimeError(
+                f"Boilerplate plot suppression artifact mismatch: '{p}' has {len(arr)} rows, "
+                f"expected {expected_rows} rows aligned with plot embeddings catalog."
+            )
+        return arr
+
     if p.exists():
-        return np.load(p)
-    return np.zeros(plot_ids().shape[0], dtype=bool)
+        arr = np.load(p)
+        if len(arr) == expected_rows:
+            return arr
+    return np.zeros(expected_rows, dtype=bool)
 
 
 @lru_cache(maxsize=1)

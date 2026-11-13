@@ -91,6 +91,51 @@ def get_system_snapshot(process: psutil.Process) -> Dict[str, Any]:
     }
 
 
+def get_git_commit() -> str:
+    """Return the current Git commit hash."""
+    try:
+        import subprocess
+        res = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(BACKEND_DIR))
+        return res.decode().strip()
+    except Exception:
+        return "unknown"
+
+
+def get_active_config_flags() -> Dict[str, Any]:
+    """Return dictionary of active settings and configuration flags."""
+    attrs = [
+        "pipeline_sem",
+        "exact_limit",
+        "starvation_hard_cap",
+        "min_survivors",
+        "pool_cap",
+        "max_results",
+        "k_tag",
+        "k_plot",
+        "use_matvec_tag_candidates",
+        "use_uncapped_pool",
+        "tie_break_plot",
+        "tag_dense_matvec_threshold",
+        "suppress_boilerplate_plots",
+        "app_env",
+        "ann_k",
+    ]
+    flags: Dict[str, Any] = {}
+    for attr in attrs:
+        if hasattr(settings, attr):
+            flags[attr] = getattr(settings, attr)
+    return flags
+
+
+def get_plot_suppressed_count() -> int:
+    """Return the count of rows marked True in plot_suppressed.npy mask."""
+    try:
+        suppressed = artifacts.plot_suppressed()
+        return int(np.sum(suppressed))
+    except Exception as e:
+        return -1
+
+
 async def send_recommend_request(
     client: httpx.AsyncClient,
     payload: Dict[str, Any],
@@ -130,6 +175,10 @@ async def run_benchmark(
     smoke_mode: bool,
 ) -> None:
     process = psutil.Process()
+    stage_metrics: Dict[str, Any] = {}
+    metrics_start = get_system_snapshot(process)
+    stage_metrics["start"] = metrics_start
+
     print("=" * 80)
     print("CONTROLLED VALIDATION BENCHMARK HARNESS")
     print(f"Platform: {platform.system()} {platform.release()} ({platform.machine()})")
@@ -146,6 +195,7 @@ async def run_benchmark(
 
     print("Starting FastAPI application lifespan (loading artifacts, meta index, pools)...")
     async with app.router.lifespan_context(app):
+        stage_metrics["after_lifespan"] = get_system_snapshot(process)
         # Explicit requirement: disable rate limiter only inside benchmark
         rate_limiter = getattr(app.state, "limiter", None)
         original_limiter_enabled = True
@@ -224,6 +274,7 @@ async def run_benchmark(
                 pass_num = step["pass_num"]
                 req_builder = case_definitions[case_name]
 
+                stage_metrics[f"seq_{step_idx}_{case_name}_pass{pass_num}_start"] = get_system_snapshot(process)
                 print(f"\n--> [{step_idx}/8] Running {case_name} (Pass {pass_num}) - {queries_per_case} distinct queries...")
                 stage_ram_start = get_free_ram_gb()
                 stage_rss_start = get_process_rss_mb(process)
@@ -261,6 +312,7 @@ async def run_benchmark(
 
                 stage_ram_end = get_free_ram_gb()
                 stage_rss_end = get_process_rss_mb(process)
+                stage_metrics[f"seq_{step_idx}_{case_name}_pass{pass_num}_end"] = get_system_snapshot(process)
 
                 print(f"    Results: p50={p50:.1f}ms | p95={p95:.1f}ms | max={pmax:.1f}ms | mean={pmean:.1f}ms | pool p50={pool_p50:.0f}")
                 print(f"    Memory: RSS {stage_rss_start:.1f} -> {stage_rss_end:.1f} MB | Free RAM {stage_ram_start:.2f} -> {stage_ram_end:.2f} GB")
@@ -304,6 +356,7 @@ async def run_benchmark(
                         burst_payloads.append((cname, case_definitions[cname](s)))
 
                 # Fire all 8 requests simultaneously into ASGI pipeline
+                stage_metrics[f"concurrency_burst_{it + 1}_start"] = get_system_snapshot(process)
                 c_ram_start = get_free_ram_gb()
                 c_rss_start = get_process_rss_mb(process)
                 t_burst_start = time.perf_counter()
@@ -317,6 +370,7 @@ async def run_benchmark(
                 wall_elapsed_ms = (time.perf_counter() - t_burst_start) * 1000.0
                 c_ram_end = get_free_ram_gb()
                 c_rss_end = get_process_rss_mb(process)
+                stage_metrics[f"concurrency_burst_{it + 1}_end"] = get_system_snapshot(process)
 
                 c_lats = [r["elapsed_ms"] for r in responses]
                 c_lats_arr = np.array(c_lats, dtype=np.float64)
@@ -362,6 +416,7 @@ async def run_benchmark(
             print("[INFO] Rate limiter restored to original state.")
 
         metrics_end = get_system_snapshot(process)
+        stage_metrics["end"] = metrics_end
         page_faults_start = metrics_start["page_faults"]
         page_faults_end = metrics_end["page_faults"]
         pf_delta = (page_faults_end - page_faults_start) if (page_faults_start is not None and page_faults_end is not None) else None
@@ -371,6 +426,8 @@ async def run_benchmark(
             "metadata": {
                 "benchmark_name": "Controlled Validation Harness",
                 "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                "git_commit": get_git_commit(),
+                "plot_suppressed_marked_count": get_plot_suppressed_count(),
                 "smoke_mode": smoke_mode,
                 "rng_seed": seed,
                 "platform": {
@@ -381,7 +438,8 @@ async def run_benchmark(
                     "cpu_count": os.cpu_count(),
                     "total_ram_gb": round(psutil.virtual_memory().total / (1024.0 ** 3), 2),
                 },
-                "config": {
+                "active_config_flags": get_active_config_flags(),
+                "benchmark_config": {
                     "pipeline_sem": 4,
                     "blas_threads": 1,
                     "exact_limit": settings.exact_limit,
@@ -401,6 +459,7 @@ async def run_benchmark(
                     "rss_delta_mb": round(metrics_end["rss_mb"] - metrics_start["rss_mb"], 2),
                     "page_faults_delta": pf_delta,
                 },
+                "free_ram_per_stage": stage_metrics,
             },
             "sequential_runs": sequential_results,
             "concurrency_runs": concurrency_results,
@@ -414,6 +473,8 @@ async def run_benchmark(
         print("\n" + "=" * 80)
         print(f"BENCHMARK COMPLETE - RESULTS SAVED TO: {output_path}")
         print("=" * 80)
+        print(f"Git Commit:       {payload['metadata']['git_commit']}")
+        print(f"Plot Suppressed:  {payload['metadata']['plot_suppressed_marked_count']:,} marked rows")
         print(f"Initial Free RAM: {metrics_start['free_ram_gb']:.2f} GB | Final Free RAM: {metrics_end['free_ram_gb']:.2f} GB")
         print(f"Initial RSS:      {metrics_start['rss_mb']:.1f} MB | Final RSS:      {metrics_end['rss_mb']:.1f} MB")
         if pf_delta is not None:
@@ -452,8 +513,52 @@ def main():
         default=BENCH_DIR / "validation_results.json",
         help="Destination JSON file path.",
     )
+    parser.add_argument(
+        "--docker",
+        action="store_true",
+        help="Execute the benchmark inside a Docker container with --memory=6g.",
+    )
+    parser.add_argument(
+        "--docker-memory",
+        type=str,
+        default="6g",
+        help="Memory constraint for docker run (default: 6g).",
+    )
 
     args = parser.parse_args()
+
+    if args.docker:
+        import subprocess
+        docker_cmd = [
+            "docker", "run", "--rm",
+            f"--memory={args.docker_memory}",
+            "--network=host",
+            "-v", f"{BACKEND_DIR.resolve()}:/srv",
+            "-w", "/srv",
+            "-e", "PYTHONPATH=.",
+            "movie_recommender_backend:latest",
+            "python", "bench/run_validation.py",
+        ]
+        if args.smoke:
+            docker_cmd.append("--smoke")
+        if args.queries_per_case != 25 and not args.smoke:
+            docker_cmd.extend(["--queries-per-case", str(args.queries_per_case)])
+        if args.concurrency_iterations != 2 and not args.smoke:
+            docker_cmd.extend(["--concurrency-iterations", str(args.concurrency_iterations)])
+        if args.seed != 42:
+            docker_cmd.extend(["--seed", str(args.seed)])
+
+        print("=" * 80)
+        print(f"DOCKER MODE ENABLED (--memory={args.docker_memory})")
+        print("Constructed Docker command:")
+        print(" ".join(docker_cmd))
+        print("=" * 80)
+        try:
+            res = subprocess.run(docker_cmd)
+            sys.exit(res.returncode)
+        except Exception as e:
+            print(f"[ERROR] Failed to run Docker command: {e}")
+            sys.exit(1)
 
     queries = 1 if args.smoke else args.queries_per_case
     conc_iters = 1 if args.smoke else args.concurrency_iterations
