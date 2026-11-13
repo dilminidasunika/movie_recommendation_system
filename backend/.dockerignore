@@ -1,6 +1,7 @@
 chroma_data/
 artifacts/
 tests/
+bench/
 __pycache__/
 .venv/
 .env

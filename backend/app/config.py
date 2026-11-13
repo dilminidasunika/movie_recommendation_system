@@ -25,10 +25,19 @@ class Settings(BaseSettings):
 
     # Retrieval tunables (tuned in step 53)
     chip_weight: float = 1.0
-    exact_limit: int = 50_000
+    exact_limit: int = 300_000
     ann_k: int = 2000
     pool_cap: int = 2000
+    use_uncapped_pool: bool = True
+    use_matvec_tag_candidates: bool = True
+    k_tag: int = 10_000
+    k_plot: int = 5_000
     max_results: int = 200
+    min_survivors: int = 1000
+    starvation_hard_cap: int = 700_000
+    tie_break_plot: bool = True
+    tag_dense_matvec_threshold: int = 200_000
+    suppress_boilerplate_plots: bool = True
 
     gemini_api_key: str = Field(validation_alias="GEMINI_API_KEY")
     gemini_model: str = "gemini-2.5-flash"   # check AI Studio for the current model id

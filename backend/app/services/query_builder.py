@@ -1,6 +1,8 @@
 # app/services/query_builder.py
 from __future__ import annotations
 
+import logging
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -8,9 +10,12 @@ import numpy as np
 import scipy.sparse as sp
 from sklearn.preprocessing import normalize
 
+from app.config import settings
 from app.schemas import RecommendRequest
 from app.stores import artifacts, chroma, text_embedder
 from app.services.soup import build_tier_docs
+
+log = logging.getLogger(__name__)
 
 CHIP_WEIGHT = 1.0   # relative weight of the tag-chip part vs the movie part
 
@@ -29,6 +34,7 @@ class Query:
     missing_tag_ids: list[int] = field(default_factory=list)    # selected movies with no tag row
     missing_plot_ids: list[int] = field(default_factory=list)   # selected movies with no plot embedding
     plot_text: str | None = None
+    tag_full_sims: np.ndarray | None = None
 
 
 def _movie_tag_part(movie_ids: list[int]):
@@ -65,6 +71,22 @@ def _plot_centroid(movie_ids: list[int]):
         return None, []
     embs = chroma.get_plot_embeddings(movie_ids)                  # {id: np.ndarray}
     missing = [i for i in movie_ids if i not in embs]
+
+    # Suppress boilerplate plots from centroid calculation
+    if settings.suppress_boilerplate_plots and embs:
+        suppressed_mask = artifacts.plot_suppressed()
+        plot_idx = artifacts.plot_index()
+        suppressed_ids = []
+        for mid in list(embs.keys()):
+            row = plot_idx.get(mid)
+            if row is not None and suppressed_mask[row]:
+                suppressed_ids.append(mid)
+                del embs[mid]
+        if suppressed_ids:
+            missing.extend(suppressed_ids)
+            log.warning("suppressed %d boilerplate seed plot(s): %s",
+                        len(suppressed_ids), suppressed_ids)
+
     if not embs:
         return None, missing
     c = np.mean(np.stack(list(embs.values())), axis=0, keepdims=True)
@@ -72,10 +94,12 @@ def _plot_centroid(movie_ids: list[int]):
     return c, missing
 
 
-def build(req: RecommendRequest) -> Query:
+def build(req: RecommendRequest, timings: dict | None = None) -> Query:
     movie_ids = list(dict.fromkeys(req.movie_ids))                # dedupe, keep order
     chips = [{"tag_type": t.tag_type, "name": t.name} for t in req.tags]
 
+    # tag_part: movie sparse mean + chips + SVD transform
+    t0 = time.perf_counter()
     movie_part, missing_tag = _movie_tag_part(movie_ids)
     chip_part = _chip_part(chips)
 
@@ -89,15 +113,31 @@ def build(req: RecommendRequest) -> Query:
         tag_sparse = normalize(sum(parts[1:], parts[0]), norm="l2")
 
     tag_ann = None
-    if tag_sparse is not None:
-        red = artifacts.svd().transform(tag_sparse)               # (1, n_components)
+    if tag_sparse is not None and not settings.use_matvec_tag_candidates:
+        red = artifacts.svd_transform_sparse(tag_sparse)          # (1, n_components) float64
         tag_ann = normalize(red, norm="l2")[0].astype(np.float32)
+    tag_time = round(time.perf_counter() - t0, 4)
+    if timings is not None:
+        timings["tag_part"] = tag_time
+    log.debug("timing tag_part=%.4fs", tag_time)
 
+    # plot_centroid
+    t0 = time.perf_counter()
     movie_centroid, missing_plot = _plot_centroid(movie_ids)
+    centroid_time = round(time.perf_counter() - t0, 4)
+    if timings is not None:
+        timings["plot_centroid"] = centroid_time
+    log.debug("timing plot_centroid=%.4fs", centroid_time)
 
+    # embed_plot_text
+    t0 = time.perf_counter()
     text_emb = None
     if req.plot_text:
         text_emb = text_embedder.embed_plot_text(req.plot_text)
+    plot_text_time = round(time.perf_counter() - t0, 4)
+    if timings is not None:
+        timings["embed_plot_text"] = plot_text_time
+    log.debug("timing embed_plot_text=%.4fs", plot_text_time)
 
     plot_query = None
     if text_emb is not None and movie_centroid is not None:
